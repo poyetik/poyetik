@@ -51,7 +51,7 @@ const UNWRITTEN: u8 = 12;
 const EVERY_16: u8 = 13;
 /// The instance refuses its values set.
 const REFUSES: u8 = 14;
-/// The instance refuses its blocks of values.
+/// The instance refuses its second block of values.
 const REFUSES_BLOCKS: u8 = 15;
 /// Both bodies output an infinity, alike.
 const INFINITE: u8 = 16;
@@ -84,6 +84,8 @@ const SEPARATE_AT_FIRST: u8 = 28;
 const FIRST_OF_RUN: u8 = 29;
 /// The driven body takes a block whose first eight frames are equal as constant.
 const FIRST_EIGHT: u8 = 30;
+/// The instance refuses its values set the sixth time.
+const REFUSES_LATER: u8 = 31;
 
 /// Outputs a ramp of `hertz` cycles per second, with a quarter of its input, times a gain;
 /// `CHEAT` says how it goes wrong.
@@ -294,17 +296,25 @@ impl<const CHEAT: u8> Create<2> for Probe<CHEAT> {
 
 /// A [`Probe`] created at any engine block, as `audio_boxes::BuiltIn` creates a built-in box.
 #[derive(Debug)]
-struct Held<const CHEAT: u8>(Typed<Probe<CHEAT>, 2>);
+struct Held<const CHEAT: u8> {
+    /// The probe.
+    probe: Typed<Probe<CHEAT>, 2>,
+    /// How many times it was given values, or blocks of them.
+    given: u32,
+}
 
 impl<S: Sample, const N: usize, const CHEAT: u8> Object<S, N> for Held<CHEAT> {
     fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
-        self.0.process(inputs, outputs);
+        self.probe.process(inputs, outputs);
     }
 }
 
 impl<S: Sample, const N: usize, const CHEAT: u8> BoxInstance<S, N> for Held<CHEAT> {
     fn receive(&mut self, values: &ParamValues) -> bool {
-        CHEAT != REFUSES && BoxInstance::<S, N>::receive(&mut self.0, values)
+        self.given = self.given.saturating_add(1);
+        CHEAT != REFUSES
+            && !(CHEAT == REFUSES_LATER && self.given == 6)
+            && BoxInstance::<S, N>::receive(&mut self.probe, values)
     }
 
     fn run_driven(
@@ -313,7 +323,9 @@ impl<S: Sample, const N: usize, const CHEAT: u8> BoxInstance<S, N> for Held<CHEA
         outputs: &mut [Block<S, N>],
         values: &DrivenValues<N>,
     ) -> bool {
-        CHEAT != REFUSES_BLOCKS && self.0.run_driven(inputs, outputs, values)
+        self.given = self.given.saturating_add(1);
+        !(CHEAT == REFUSES_BLOCKS && self.given == 2)
+            && self.probe.run_driven(inputs, outputs, values)
     }
 }
 
@@ -323,7 +335,10 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Dispatch<S, N> for Held<CHEAT> 
             return None;
         }
         let params = values.params().array()?;
-        Some(Self(Typed::new(values.spec(), Probe::of(rate, params))))
+        Some(Self {
+            probe: Typed::new(values.spec(), Probe::of(rate, params)),
+            given: 0,
+        })
     }
 }
 
@@ -380,161 +395,452 @@ fn refused_at(
     hertz: u32,
     input: &str,
     motion: &str,
-    steady: [bool; BLOCKS],
+    steady: &str,
     problem: &str,
 ) -> Result<(), String> {
     Err(format!(
-        "binary{precision}, at {hertz} Hz: {input}, {motion}, steady blocks {steady:?}: {problem}"
+        "binary{precision}, at {hertz} Hz: {input}, {motion}, steady blocks {steady}: {problem}"
     ))
 }
 
 /// What the laws say of a box whose first broken one gives `problem`: in the first precision,
 /// at the first rate of the matrix, on the first input, at the first run of `motion`.
 fn refused(motion: &str, problem: &str) -> Result<(), String> {
-    refused_at(
-        64,
-        8_000,
-        "special inputs",
-        motion,
-        [false; BLOCKS],
-        problem,
+    refused_at(64, 8_000, "special inputs", motion, "[]", problem)
+}
+
+/// What the laws say of a first differing sample: what the engine's run gives for what the
+/// reference gives, where, and the parameters there.
+fn other(samples: &str, place: &str, params: &str) -> String {
+    format!(
+        "the run as the engine renders it gives other bits than the reference, {samples}, at \
+         {place}, with parameters {params}"
     )
 }
 
-/// The run as the engine renders it differs from the reference.
-const DIFFERS: &str = "the run as the engine renders it gives other bits than the reference, \
-                       or leaves outputs unwritten";
+/// The motion between the ends of the ranges.
+const ENDS: &str = "every parameter from one end of its range to the other";
 
-/// Every other block steady, from the first.
-const ALTERNATE: [bool; BLOCKS] = [true, false, true, false, true, false, true, false];
+/// The parameter set held that is the defaults.
+const DEFAULTS: &str = "parameter set 1 held";
 
-/// Every other block steady, from the second.
-const ALTERNATE_LATER: [bool; BLOCKS] = [false, true, false, true, false, true, false, true];
+/// The steady blocks of a run where every other block is steady, from the first.
+const ALTERNATE: &str = "[0, 2, 4, 6]";
 
-/// Runs of both bodies.
-const RUNS: [bool; BLOCKS] = [false, false, true, true, true, false, true, false];
+/// Those of one where every other block is steady, from the second.
+const ALTERNATE_LATER: &str = "[1, 3, 5, 7]";
 
+/// Those of the run of both bodies.
+const RUNS: &str = "[2, 3, 4, 6]";
+
+/// The second frame of a run.
+const SECOND: &str = "block 0, outlet 0, frame 1";
+
+/// The samples, places and parameters of these tests are those of a model of the probe, of the
+/// values and of the inputs written apart, in another language.
 #[test]
 fn refuses_a_box_whose_bodies_differ() {
-    for (name, motion, result) in [
+    const ONE_FRAME_OLD: &str = "0.0 (0x0) for 0.125 (0x3fc0000000000000)";
+    let ends = "[0.0, 1.0]";
+    for (name, motion, problem, result) in [
         // Right while its values stay, so first seen when they change at each frame.
-        ("the first frame only", "Ends", laws::<FIRST_FRAME>()),
-        ("one frame late", "Ends", laws::<LATE>()),
-        ("a step kept", "Ends", laws::<KEEPS_STEP>()),
-        ("one parameter ignored", "Ends", laws::<ONE_OF_TWO>()),
-        ("every parameter ignored", "Ends", laws::<IGNORES>()),
-        ("a value every 16 frames", "Ends", laws::<EVERY_16>()),
+        (
+            "the first frame only",
+            ENDS,
+            other(ONE_FRAME_OLD, SECOND, ends),
+            laws::<FIRST_FRAME>(),
+        ),
+        (
+            "one frame late",
+            ENDS,
+            other(ONE_FRAME_OLD, SECOND, ends),
+            laws::<LATE>(),
+        ),
+        (
+            "a step kept",
+            ENDS,
+            other(
+                "0.125 (0x3fc0000000000000) for 0.0125 (0x3f8999999999999a)",
+                SECOND,
+                ends,
+            ),
+            laws::<KEEPS_STEP>(),
+        ),
+        (
+            "one parameter ignored",
+            ENDS,
+            other(
+                "0.0625 (0x3fb0000000000000) for 0.125 (0x3fc0000000000000)",
+                SECOND,
+                ends,
+            ),
+            laws::<ONE_OF_TWO>(),
+        ),
+        (
+            "every parameter ignored",
+            ENDS,
+            other(
+                "0.00625 (0x3f7999999999999a) for 0.125 (0x3fc0000000000000)",
+                SECOND,
+                ends,
+            ),
+            laws::<IGNORES>(),
+        ),
+        (
+            "a value every 16 frames",
+            ENDS,
+            other(ONE_FRAME_OLD, SECOND, ends),
+            laws::<EVERY_16>(),
+        ),
         (
             "the first frame only, through its factory",
-            "Ends",
+            ENDS,
+            other(
+                "0.0 (0x0) for -0.0 (0x8000000000000000)",
+                "block 0, outlet 0, frame 21",
+                ends,
+            ),
             factory_laws::<FIRST_FRAME>(),
         ),
+    ] {
+        assert_eq!(result, refused(motion, &problem), "{name}");
+    }
+}
+
+#[test]
+fn refuses_a_box_whose_bodies_differ_on_values_drawn_or_held() {
+    for (name, motion, problem, result) in [
         // The two formulas agree at 8 kHz at both ends of the range: seen there by the values
         // drawn.
-        ("another formula", "Random", laws::<OTHER_FORMULA>()),
+        (
+            "another formula",
+            "every parameter drawn",
+            other(
+                "0.10719881810038981 (0x3fbb7161b9e93912) for 0.1071988181003898 \
+                 (0x3fbb7161b9e93911)",
+                SECOND,
+                "[26.433771592597743, 0.9708819781538285]",
+            ),
+            laws::<OTHER_FORMULA>(),
+        ),
         // Wrong while its values stay, but silent at a gain of 0, the first set's: seen at the
         // second one, the defaults.
-        ("a phase restarted", "Held(1)", laws::<RESTARTS>()),
-        ("a phase frozen", "Held(1)", laws::<FROZEN>()),
-        ("parameters swapped", "Held(1)", laws::<SWAPPED>()),
+        (
+            "a phase restarted",
+            DEFAULTS,
+            other(
+                "0.00625 (0x3f7999999999999a) for 0.0 (0x0)",
+                SECOND,
+                "[100.0, 0.5]",
+            ),
+            laws::<RESTARTS>(),
+        ),
+        (
+            "a phase frozen",
+            DEFAULTS,
+            other(
+                "0.0 (0x0) for 0.00625 (0x3f7999999999999a)",
+                SECOND,
+                "[100.0, 0.5]",
+            ),
+            laws::<FROZEN>(),
+        ),
+        (
+            "parameters swapped",
+            DEFAULTS,
+            other(
+                "0.01875 (0x3f93333333333333) for 0.018750000000000003 (0x3f93333333333334)",
+                "block 0, outlet 0, frame 3",
+                "[100.0, 0.5]",
+            ),
+            laws::<SWAPPED>(),
+        ),
         // Whatever its values.
-        ("a sample unwritten", "Held(0)", laws::<UNWRITTEN>()),
+        (
+            "a sample unwritten",
+            "parameter set 0 held",
+            "the run as the engine renders it leaves a sample unwritten, for 0.0 (0x0), at block \
+             0, outlet 0, frame 0, with parameters [0.0, 0.0]"
+                .to_owned(),
+            laws::<UNWRITTEN>(),
+        ),
     ] {
-        assert_eq!(result, refused(motion, DIFFERS), "{name}");
+        assert_eq!(result, refused(motion, &problem), "{name}");
     }
 }
 
 #[test]
 fn refuses_a_box_wrong_in_one_dimension_of_the_runs_only() {
     const HEAP: &str = "uses the heap (8 heap operations)";
-    const SUBNORMAL_SAMPLE: &str = "a sample is not finite, or is subnormal";
-    const CREATED: &str = "an instance created with its values gives other bits than one \
-                           created with the defaults, then given them";
     let special = "special inputs";
-    let random = "random inputs";
-    let row = [false; BLOCKS];
+    let start = "block 1, outlet 0, frame 0";
+    let defaults = "[100.0, 0.5]";
     for (name, result, expected) in [
         // Right whenever the driven body follows itself: seen once the steady one renders.
         (
             "a phase of its own",
             laws::<SEPARATE_PHASE>(),
-            refused_at(64, 8_000, special, "Held(1)", ALTERNATE, DIFFERS),
+            refused_at(
+                64,
+                8_000,
+                special,
+                DEFAULTS,
+                ALTERNATE,
+                &other(
+                    "0.0 (0x0) for 0.3999999999999996 (0x3fd9999999999992)",
+                    start,
+                    defaults,
+                ),
+            ),
         ),
         // Right whenever the steady body renders first, or never.
         (
             "a phase of its own until the steady body renders",
             laws::<SEPARATE_AT_FIRST>(),
-            refused_at(64, 8_000, special, "Held(1)", ALTERNATE_LATER, DIFFERS),
+            refused_at(
+                64,
+                8_000,
+                special,
+                DEFAULTS,
+                ALTERNATE_LATER,
+                &other(
+                    "0.0 (0x0) for 0.3999999999999996 (0x3fd9999999999992)",
+                    start,
+                    defaults,
+                ),
+            ),
         ),
         // Right whenever the driven body renders one block at a time, or every block.
         (
             "the phase of the first block of a run",
             laws::<FIRST_OF_RUN>(),
-            refused_at(64, 8_000, special, "Held(1)", RUNS, DIFFERS),
+            refused_at(
+                64,
+                8_000,
+                special,
+                DEFAULTS,
+                RUNS,
+                &other(
+                    "0.3999999999999996 (0x3fd9999999999992) for 0.2999999999999992 \
+                     (0x3fd3333333333325)",
+                    "block 2, outlet 0, frame 0",
+                    defaults,
+                ),
+            ),
         ),
         (
             "the heap while taking values",
             laws::<ALLOCATES_IN_SET>(),
-            refused_at(64, 8_000, special, "Held(0)", ALTERNATE, HEAP),
+            refused_at(64, 8_000, special, "parameter set 0 held", ALTERNATE, HEAP),
         ),
+    ] {
+        assert_eq!(result, expected, "{name}");
+    }
+}
+
+#[test]
+fn refuses_a_box_wrong_on_some_changes_of_its_values_only() {
+    for (name, result, expected) in [
         // Right while no value changes to an equal one.
         (
             "-0 taken for +0",
             laws::<EQUAL_SKIP>(),
-            refused_at(64, 8_000, special, "Zeros", row, DIFFERS),
+            refused(
+                "every parameter from one zero to the other",
+                &other(
+                    "0.0 (0x0) for -0.0 (0x8000000000000000)",
+                    SECOND,
+                    "[-0.0, -0.0]",
+                ),
+            ),
         ),
         // Right while every parameter changes with the first.
         (
             "a parameter taken with the first only",
             laws::<CHANGE_ON_FIRST>(),
-            refused_at(64, 8_000, special, "Alone(1)", row, DIFFERS),
+            refused(
+                "parameter 1 drawn alone",
+                &other(
+                    "0.00625 (0x3f7999999999999a) for 0.005394099963106375 (0x3f76181faeed2514)",
+                    SECOND,
+                    "[100.0, 0.43152799704850997]",
+                ),
+            ),
         ),
         // Right while the values do not change at the second frame of a block.
         (
             "a block of two equal frames taken as constant",
             laws::<FIRST_TWO>(),
-            refused_at(64, 8_000, special, "Step(0)", row, DIFFERS),
+            refused(
+                "one change per block, from frame 0 in the first",
+                &other(
+                    "0.0 (0x0) for 0.125 (0x3fc0000000000000)",
+                    "block 2, outlet 0, frame 2",
+                    "[1000.0, 1.0]",
+                ),
+            ),
         ),
         // Right while the values change within the first eight frames of a block.
         (
             "a block of eight equal frames taken as constant",
             laws::<FIRST_EIGHT>(),
-            refused_at(64, 8_000, special, "Step(1)", row, DIFFERS),
+            refused(
+                "one change per block, from frame 8 in the first",
+                &other(
+                    "0.0 (0x0) for 0.125 (0x3fc0000000000000)",
+                    "block 0, outlet 0, frame 9",
+                    "[1000.0, 1.0]",
+                ),
+            ),
         ),
+    ] {
+        assert_eq!(result, expected, "{name}");
+    }
+}
+
+#[test]
+fn refuses_a_box_wrong_on_some_rates_inputs_or_precisions_only() {
+    let special = "special inputs";
+    let random = "random inputs";
+    let row = "[]";
+    let defaults = "[100.0, 0.5]";
+    for (name, result, expected) in [
         // Right at the first rate.
         (
             "a fixed rate",
             laws::<FIXED_RATE>(),
-            refused_at(64, 11_025, special, "Held(1)", row, DIFFERS),
+            refused_at(
+                64,
+                11_025,
+                special,
+                DEFAULTS,
+                row,
+                &other(
+                    "0.00625 (0x3f7999999999999a) for 0.0045351473922902496 (0x3f7293725bb804a5)",
+                    SECOND,
+                    defaults,
+                ),
+            ),
         ),
         // Right on every special input.
         (
             "its input multiplied by 3, then divided by 3",
             laws::<THIRDS>(),
-            refused_at(64, 8_000, random, "Held(1)", row, DIFFERS),
+            refused_at(
+                64,
+                8_000,
+                random,
+                DEFAULTS,
+                row,
+                &other(
+                    "0.13183717169104323 (0x3fc0e00a5a67b393) for 0.13183717169104325 \
+                     (0x3fc0e00a5a67b394)",
+                    "block 0, outlet 0, frame 6",
+                    defaults,
+                ),
+            ),
         ),
         // Right in binary64, and on the parameter sets, which binary32 holds (500 and 0.75 away
         // from the defaults): seen by the values drawn.
         (
             "values rounded to binary32",
             laws::<ROUNDED_VALUES>(),
-            refused_at(32, 8_000, special, "Random", row, DIFFERS),
+            refused_at(
+                32,
+                8_000,
+                special,
+                "every parameter drawn",
+                row,
+                &other(
+                    "0.2659332752227783 (0x3e882868) for 0.2659333050251007 (0x3e882869)",
+                    "block 0, outlet 0, frame 6",
+                    "[523.9505916549513, 0.5551675161334325]",
+                ),
+            ),
         ),
         (
             "a subnormal output",
             laws::<SUBNORMAL>(),
-            refused_at(64, 8_000, special, "Held(0)", row, SUBNORMAL_SAMPLE),
+            refused(
+                "parameter set 0 held",
+                "a sample is not finite, or is subnormal, 1.1125369292536007e-308 \
+                 (0x8000000000000) at block 0, outlet 0, frame 0, with parameters [0.0, 0.0]",
+            ),
         ),
         // Right by every run, since the reference gives values before every block.
         (
             "created with the default gain",
             laws::<CREATED_OTHERWISE>(),
-            Err(format!(
-                "binary64, at 8000 Hz: {special}, Held(0): {CREATED}"
-            )),
+            Err(
+                "binary64, at 8000 Hz: special inputs, parameter set 0 held: an instance created \
+                 with its values gives other bits than one created with the defaults, then given \
+                 them, 0.125 (0x3fc0000000000000) for 0.0 (0x0), at block 0, outlet 0, frame 6, \
+                 with parameters [0.0, 0.0]"
+                    .to_owned(),
+            ),
         ),
     ] {
         assert_eq!(result, expected, "{name}");
+    }
+}
+
+/// The words of each motion and each place, which no refusal above needs all of.
+#[test]
+fn names_each_motion_and_place() {
+    use super::{Motion, Place};
+    for (motion, words) in [
+        (Motion::Held(5), "parameter set 5 held"),
+        (Motion::Ends, ENDS),
+        (Motion::Random, "every parameter drawn"),
+        (
+            Motion::Step(7),
+            "one change per block, from frame 56 in the first",
+        ),
+        (Motion::Zeros, "every parameter from one zero to the other"),
+        (Motion::Alone(3), "parameter 3 drawn alone"),
+    ] {
+        assert_eq!(motion.to_string(), words, "{motion:?}");
+    }
+    // Two outlets, blocks of 64 frames.
+    for (index, words) in [
+        (0, "block 0, outlet 0, frame 0"),
+        (63, "block 0, outlet 0, frame 63"),
+        (64, "block 0, outlet 1, frame 0"),
+        (323, "block 2, outlet 1, frame 3"),
+    ] {
+        assert_eq!(Place::of(index, 2).to_string(), words, "sample {index}");
+    }
+}
+
+/// The values a law names are those of the place's frame, and of the part that holds it when
+/// the reference's blocks are longer than a frame.
+#[test]
+fn names_the_values_at_a_place() {
+    use super::{Motion, Place, Run};
+    let spec = spec::<Probe<RIGHT>, 2>(&[OUT]);
+    let motion = || (Motion::Ends, ParamValues::defaults(spec));
+    let place = |frame| Place {
+        block: 1,
+        outlet: 0,
+        frame,
+    };
+    let fine = Run::new::<1>(spec, motion(), [false; BLOCKS]);
+    let coarse = Run::new::<16>(spec, motion(), [false; BLOCKS]);
+    let (up, down) = ([1_000.0_f64, 0.0_f64], [0.0_f64, 1.0_f64]);
+    for (frame, at_each, at_every_16) in [
+        (0, up, up),
+        (15, down, up),
+        (17, down, down),
+        (62, up, down),
+    ] {
+        assert_eq!(
+            (
+                fine.values_at::<1>(place(frame)),
+                coarse.values_at::<16>(place(frame))
+            ),
+            (at_each.to_vec(), at_every_16.to_vec()),
+            "frame {frame}"
+        );
     }
 }
 
@@ -645,13 +951,17 @@ fn does_not_see_inside_the_blocks_of_a_coarser_reference() {
 fn refuses_what_is_not_finite_and_the_heap() {
     assert_eq!(
         laws::<INFINITE>(),
-        refused("Held(0)", "a sample is not finite, or is subnormal"),
+        refused(
+            "parameter set 0 held",
+            "a sample is not finite, or is subnormal, inf (0x7ff0000000000000) at block 0, \
+             outlet 0, frame 0, with parameters [0.0, 0.0]"
+        ),
         "an infinity in both bodies"
     );
     // An allocation and a release in each of the 8 blocks.
     assert_eq!(
         laws::<ALLOCATES>(),
-        refused("Held(0)", "uses the heap (16 heap operations)"),
+        refused("parameter set 0 held", "uses the heap (16 heap operations)"),
         "an allocation"
     );
     assert_eq!(laws::<ALLOCATES_OFFLINE>(), Ok(()), "offline-only");
@@ -660,17 +970,29 @@ fn refuses_what_is_not_finite_and_the_heap() {
 #[test]
 fn refuses_an_instance_that_is_not_created_or_takes_no_parameter() {
     for (result, problem) in [
-        (laws::<REFUSES>(), "refuses as many parameters as it has"),
+        (
+            laws::<REFUSES>(),
+            "refuses as many parameters as it has, [0.0, 0.0] at block 0, frame 0",
+        ),
         (
             laws::<REFUSES_BLOCKS>(),
-            "refuses as many parameters as it has",
+            "refuses as many parameters as it has, [0.0, 0.0] at block 1, frame 0",
+        ),
+        (
+            laws::<REFUSES_LATER>(),
+            "refuses as many parameters as it has, [0.0, 0.0] at block 0, frame 5",
+        ),
+        // Four parts a block: the sixth is the second of the second block.
+        (
+            coarse_laws::<REFUSES_LATER>(),
+            "refuses as many parameters as it has, [0.0, 0.0] at block 1, frame 16",
         ),
         (
             laws::<UNCREATED>(),
             "the box type is not built for engine blocks of 1 frames",
         ),
     ] {
-        assert_eq!(result, refused("Held(0)", problem), "refused");
+        assert_eq!(result, refused("parameter set 0 held", problem), "refused");
     }
     assert_eq!(
         check_driven_laws::<Held<UNCREATED>, Held<RIGHT>, Held<UNCREATED>, Held<RIGHT>, 1>(spec::<
@@ -680,7 +1002,7 @@ fn refuses_an_instance_that_is_not_created_or_takes_no_parameter() {
             &[OUT]
         )),
         refused(
-            "Held(0)",
+            "parameter set 0 held",
             "the box type is not built for engine blocks of 64 frames"
         ),
         "created for the reference only"
