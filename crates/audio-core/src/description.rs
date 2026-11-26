@@ -276,17 +276,22 @@ impl<'bytes> Description<'bytes> {
         reader.field = Field::Outlets;
         let outlets = reader.ports(|index, part| Field::Outlet { index, part })?;
         reader.field = Field::Params;
+        let described = reader.count()?;
         let params = reader.list(
-            Reader::param,
-            |param| param.name,
-            |index| Field::Param {
-                index,
-                part: Part::Name,
+            described,
+            |item, index| {
+                item.field = Field::Param {
+                    index,
+                    part: Part::Name,
+                };
+                item.text(TextKind::Name)
             },
-            u32::MAX,
+            Reader::param,
         )?;
         reader.field = Field::Capabilities;
+        let asked = reader.count()?;
         let capabilities = reader.list(
+            asked,
             |item, index| {
                 item.field = Field::Capability { index };
                 item.code(|code| match code {
@@ -294,9 +299,7 @@ impl<'bytes> Description<'bytes> {
                     _ => None,
                 })
             },
-            |&capability| capability,
-            |index| Field::Capability { index },
-            u32::MAX,
+            |_, _, capability| Ok(capability),
         )?;
         reader.field = Field::End;
         if reader.bytes.is_empty() {
@@ -430,43 +433,51 @@ impl<'bytes> Reader<'bytes> {
         text_fault(text, kind).map_or(Ok(text), |fault| Err(self.refusal(fault)))
     }
 
-    /// The next list, of at most `most` items, the item at `index` read by `item`, none
-    /// repeating the `key` of an earlier one, which a refusal of the field `named` gives
-    /// names. It grows with the items read, never by the count announced, and every item
-    /// takes a byte at least, so the bytes bound it too.
-    fn list<T, K: Ord>(
+    /// The next 32 bits: the count of the list that follows.
+    fn count(&mut self) -> Result<u32, DescriptionError> {
+        Ok(u32::from_le_bytes(self.take()?))
+    }
+
+    /// The next `count` items of a list, the one at `index` read by `key`, what no two of them
+    /// share and its first part, then by `rest`, what follows its key: a key repeated is
+    /// refused as soon as it is read, in the field `key` read. It grows with the items read,
+    /// never by the count announced, and every item takes a byte at least, so the bytes bound
+    /// it too.
+    fn list<T, K: Ord + Copy>(
         &mut self,
-        item: impl Fn(&mut Self, u32) -> Result<T, DescriptionError>,
-        key: impl Fn(&T) -> K,
-        named: impl Fn(u32) -> Field,
-        most: u32,
+        count: u32,
+        key: impl Fn(&mut Self, u32) -> Result<K, DescriptionError>,
+        rest: impl Fn(&mut Self, u32, K) -> Result<T, DescriptionError>,
     ) -> Result<Vec<T>, DescriptionError> {
-        let count = u32::from_le_bytes(self.take()?);
-        if count > most {
-            return Err(self.refusal(Fault::TooMany { count }));
-        }
         let mut keys = BTreeMap::new();
         let mut items = vec![];
         for index in 0..count {
-            let read = item(self, index)?;
-            if let Some(first) = keys.insert(key(&read), index) {
-                self.field = named(index);
+            let read = key(self, index)?;
+            if let Some(first) = keys.insert(read, index) {
                 return Err(self.refusal(Fault::Repeated { first }));
             }
-            items.push(read);
+            items.push(rest(self, index, read)?);
         }
         Ok(items)
     }
 
-    /// The next list of ports, the part of the port at an index being the field `at` gives.
+    /// The next list of ports, at most [`PORTS_MAX`], the part of the port at an index being
+    /// the field `at` gives.
     fn ports(
         &mut self,
         at: fn(u32, Part) -> Field,
     ) -> Result<Vec<DescribedPort<'bytes>>, DescriptionError> {
+        let count = self.count()?;
+        if count > PORTS_MAX {
+            return Err(self.refusal(Fault::TooMany { count }));
+        }
         self.list(
+            count,
             |reader, index| {
                 reader.field = at(index, Part::Name);
-                let name = reader.text(TextKind::Name)?;
+                reader.text(TextKind::Name)
+            },
+            |reader, index, name| {
                 reader.field = at(index, Part::DescriptionText);
                 let description = reader.text(TextKind::DescriptionText)?;
                 reader.field = at(index, Part::Kind);
@@ -477,17 +488,16 @@ impl<'bytes> Reader<'bytes> {
                     kind,
                 })
             },
-            |port| port.name,
-            |index| at(index, Part::Name),
-            PORTS_MAX,
         )
     }
 
-    /// The parameter at `index`.
-    fn param(&mut self, index: u32) -> Result<DescribedParam<'bytes>, DescriptionError> {
+    /// The parameter at `index`, called `name`, from its description text on.
+    fn param(
+        &mut self,
+        index: u32,
+        name: &'bytes str,
+    ) -> Result<DescribedParam<'bytes>, DescriptionError> {
         let at = |part| Field::Param { index, part };
-        self.field = at(Part::Name);
-        let name = self.text(TextKind::Name)?;
         self.field = at(Part::DescriptionText);
         let description = self.text(TextKind::DescriptionText)?;
         self.field = at(Part::Values);

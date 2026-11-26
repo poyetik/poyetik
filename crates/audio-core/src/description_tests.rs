@@ -693,6 +693,31 @@ fn refuses_what_repeats() {
         Some(refused(inlet(3, Part::Name), Fault::Repeated { first: 1 })),
         "the earlier item named"
     );
+    // Refused as soon as it is read, before the rest of its item.
+    let wrong = [0.0_f64, f64::NAN, 1.0_f64];
+    for (index, items, field) in [
+        (
+            5,
+            [port("a", "x", 0), port("a", " ", 0)],
+            inlet(1, Part::Name),
+        ),
+        (
+            6,
+            [port("a", "x", 0), port("a", "x", 9)],
+            outlet(1, Part::Name),
+        ),
+        (
+            7,
+            [param("a", "x", [0.0_f64; 3]), param("a", "x", wrong)],
+            param_at(1, Part::Name),
+        ),
+    ] {
+        assert_eq!(
+            refusal(index, &list(&items)),
+            Some(refused(field, Fault::Repeated { first: 0 })),
+            "{field}, before a later part of its item"
+        );
+    }
     assert_eq!(
         refusal(6, &list(&[port("in", "x", 0)])),
         None,
