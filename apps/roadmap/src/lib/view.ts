@@ -6,13 +6,13 @@ export interface NumberedStep extends StepWithStatus {
   readonly number: number;
 }
 
-/** The steps of one review block of a card, or the steps in no block yet, prepared for display. */
+/** The steps of one review block of a card, or the steps in no block, prepared for display. */
 export interface StepGroup {
   /** The block's number, or null for the steps in no block. */
   readonly block: number | null;
   /** The group's heading: "Block 5: steps 16 to 18 and 39", or "Not in a block". */
   readonly heading: string;
-  /** Whether every step of the group is done; always false for the steps in no block, which no review ends. */
+  /** Whether every step of the group is done. */
   readonly done: boolean;
   /** The group's steps, in card order. */
   readonly steps: readonly NumberedStep[];
@@ -26,7 +26,11 @@ export interface CardView extends Card {
   readonly doneSteps: number;
   /** Title of the step in progress, or null when there is none (card not in `doing`, no step left, or no step). */
   readonly currentStep: string | null;
-  /** The card's steps grouped by review block, by increasing number, then the steps in no block; empty when no step is in a block. */
+  /**
+   * The card's steps grouped by review block, by increasing number, and the steps in no block: first when the first of them
+   * comes before every step in a block (a card's first steps, done before its blocks began), else last. Empty when no step
+   * is in a block.
+   */
   readonly groups: readonly StepGroup[];
 }
 
@@ -80,7 +84,13 @@ function stepGroups(steps: readonly StepWithStatus[]): StepGroup[] {
     steps: numbered.filter((step) => step.block === block.block),
   }));
   const loose = numbered.filter((step) => step.block === undefined);
-  return loose.length === 0 ? groups : [...groups, { block: null, heading: "Not in a block", done: false, steps: loose }];
+  const first = loose[0];
+  if (first === undefined) {
+    return groups;
+  }
+  const group = { block: null, heading: "Not in a block", done: loose.every((step) => step.done), steps: loose };
+  // The groups are not empty, so a step is in a block.
+  return first.number <= numbered.findIndex((step) => step.block !== undefined) ? [group, ...groups] : [...groups, group];
 }
 
 /** Adds to a card its step statuses, its count of done steps, the title of the step in progress and its review blocks. */

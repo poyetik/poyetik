@@ -61,7 +61,7 @@ describe("toView", () => {
     expect(toView(board).columns[2]?.cards[0]?.groups).toEqual([]);
   });
 
-  it("groups steps by review block, by increasing number, then the steps in no block, each with its number and status", () => {
+  it("groups steps by review block, by increasing number, and the steps in no block first or last, each with its number and status", () => {
     const steps = [
       { title: "A", done: true, block: 2 },
       { title: "B", done: true, block: 1 },
@@ -95,6 +95,41 @@ describe("toView", () => {
     ]);
     // The step in progress is the open block's, before the step in no block that comes first in the card.
     expect(toView(board).columns[2]?.cards[0]?.currentStep).toBe("D");
+    const first = [
+      { title: "A", done: true },
+      { title: "B", done: true },
+      { title: "C", done: false, block: 1 },
+      { title: "D", done: false },
+    ];
+    expect(toView({ ...board, cards: [{ ...card(1, "doing", "2026-11-01"), steps: first }] }).columns[2]?.cards[0]?.groups).toEqual([
+      {
+        block: null,
+        heading: "Not in a block",
+        done: false,
+        steps: [
+          { title: "A", done: true, status: "done", number: 1 },
+          { title: "B", done: true, status: "done", number: 2 },
+          { title: "D", done: false, status: "todo", number: 4 },
+        ],
+      },
+      { block: 1, heading: "Block 1: step 3", done: false, steps: [{ title: "C", done: false, block: 1, status: "doing", number: 3 }] },
+    ]);
+    const before = [
+      { title: "A", done: true },
+      { title: "B", done: true, block: 1 },
+    ];
+    expect(toView({ ...board, cards: [{ ...card(1, "doing", "2026-11-01"), steps: before }] }).columns[2]?.cards[0]?.groups).toEqual([
+      { block: null, heading: "Not in a block", done: true, steps: [{ title: "A", done: true, status: "done", number: 1 }] },
+      { block: 1, heading: "Block 1: step 2", done: true, steps: [{ title: "B", done: true, block: 1, status: "done", number: 2 }] },
+    ]);
+    const after = [
+      { title: "A", done: false, block: 1 },
+      { title: "B", done: true },
+    ];
+    expect(toView({ ...board, cards: [{ ...card(1, "doing", "2026-11-01"), steps: after }] }).columns[2]?.cards[0]?.groups).toEqual([
+      { block: 1, heading: "Block 1: step 1", done: false, steps: [{ title: "A", done: false, block: 1, status: "doing", number: 1 }] },
+      { block: null, heading: "Not in a block", done: true, steps: [{ title: "B", done: true, status: "done", number: 2 }] },
+    ]);
     const allIn = { ...board, cards: [{ ...card(1, "next", "2026-11-01"), steps: [{ title: "A", done: false, block: 1 }] }] };
     expect(toView(allIn).columns[1]?.cards[0]?.groups).toEqual([
       { block: 1, heading: "Block 1: step 1", done: false, steps: [{ title: "A", done: false, block: 1, status: "todo", number: 1 }] },

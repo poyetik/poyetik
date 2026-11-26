@@ -23,7 +23,7 @@ export interface Step {
   /** Whether the step is finished. */
   readonly done: boolean;
   /**
-   * The review block the step belongs to, a safe integer of at least 1, or absent when the step is in none yet.
+   * The review block the step belongs to, a safe integer of at least 1, or absent when the step is in none.
    * Optional in the file too, so a board without blocks keeps format version 1 unchanged. Nothing else about a
    * block is stored: its steps, its end and whether it is done are derived (see `cardBlocks`).
    */
