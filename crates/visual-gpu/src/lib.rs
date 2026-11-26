@@ -75,6 +75,22 @@ const STAMP_BYTES: u64 = 16;
 /// the two equal).
 const STAMP_LEN: usize = 16;
 
+/// wgpu's [`wgpu::COPY_BUFFER_ALIGNMENT`] as a length of memory, for the display's channels
+/// (a test holds the two equal).
+const COPY_ALIGNMENT_LEN: usize = 4;
+
+// Every readback is copied and mapped from offset 0 in whole multiples of wgpu's copy
+// alignment, which `copy_buffer_to_buffer` and `get_mapped_range` require: a band of the
+// square's pixels, a band of the display's (a byte per channel), then the timestamps. Held at
+// compile time, so that a channel count or a stamp size breaking it fails the build, never a
+// pass on the GPU.
+const _: () = assert!(
+    Image::PIXEL_BYTES.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT)
+        && DisplayImage::CHANNELS.is_multiple_of(COPY_ALIGNMENT_LEN)
+        && STAMP_BYTES.is_multiple_of(wgpu::COPY_BUFFER_ALIGNMENT),
+    "every readback must stay a multiple of wgpu's copy alignment"
+);
+
 /// The display shader's thresholds as bytes: each of [`DISPLAY_THRESHOLD_BITS`], little-endian.
 fn threshold_bytes() -> Vec<u8> {
     DISPLAY_THRESHOLD_BITS

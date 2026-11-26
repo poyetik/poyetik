@@ -29,6 +29,11 @@ impl ImageSize {
     /// WebAssembly instance traps (`spec/limitations.md`, "Out of memory").
     pub const MAX_PIXELS: u64 = 1 << 25;
 
+    /// [`ImageSize::MAX_PIXELS`] as a `u32`, which it fits, for [`ImageSize::new`] to check
+    /// sizes at compile time too (no conversion to `u64` is a `const fn`); a test holds the
+    /// two equal.
+    const MAX_PIXELS_U32: u32 = 1 << 25;
+
     /// Creates an image size.
     ///
     /// # Errors
@@ -36,15 +41,14 @@ impl ImageSize {
     /// Returns [`VisualError::InvalidImageSize`] when a side is 0 or longer than
     /// [`ImageSize::MAX_SIDE`], and [`VisualError::ImageTooLarge`] when the image has more
     /// than [`ImageSize::MAX_PIXELS`] pixels.
-    pub fn new(width: u32, height: u32) -> Result<Self, VisualError> {
-        let sides = 1..=Self::MAX_SIDE;
-        let size = Self { width, height };
-        if !(sides.contains(&width) && sides.contains(&height)) {
-            Err(VisualError::InvalidImageSize { width, height })
-        } else if size.pixels() > Self::MAX_PIXELS {
-            Err(VisualError::ImageTooLarge { width, height })
-        } else {
-            Ok(size)
+    pub const fn new(width: u32, height: u32) -> Result<Self, VisualError> {
+        if width == 0 || height == 0 || width > Self::MAX_SIDE || height > Self::MAX_SIDE {
+            return Err(VisualError::InvalidImageSize { width, height });
+        }
+        // Both sides at most 2¹⁴: their product fits a `u32`.
+        match width.checked_mul(height) {
+            Some(pixels) if pixels <= Self::MAX_PIXELS_U32 => Ok(Self { width, height }),
+            _ => Err(VisualError::ImageTooLarge { width, height }),
         }
     }
 

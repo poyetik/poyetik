@@ -1269,3 +1269,12 @@ fn holds_the_timestamps_as_many_bytes_as_a_length_of_memory() {
         "one count of bytes, two types"
     );
 }
+
+#[test]
+fn holds_wgpu_s_copy_alignment_as_a_length_of_memory() {
+    assert_eq!(
+        u64::try_from(super::COPY_ALIGNMENT_LEN).ok(),
+        Some(wgpu::COPY_BUFFER_ALIGNMENT),
+        "one alignment, two types"
+    );
+}

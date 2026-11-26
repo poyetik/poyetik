@@ -11,9 +11,9 @@ use visual_core::{ImageRate, Seconds};
 
 use super::{
     BASELINE, BLESS_CONDITION, BLESS_RUNS, BOUND_PERCENT, BenchError, BenchIo, CHECKED, Failure,
-    Gpu, Held, IDLE, IMAGE, POWER_CONDITION, REPEATS, RUNS, Runs, SAFETY, SHOWN, SQUARE_CYCLE,
-    SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, VERSION, Version, bound_percent,
-    format_baseline, measure, measured_square, median_of, median_of_runs, one_line, parse_baseline,
+    Gpu, Held, IDLE, IMAGE, MEASURED_SQUARE, POWER_CONDITION, REPEATS, RUNS, Runs, SAFETY, SHOWN,
+    SQUARE_CYCLE, SQUARE_RATE, SQUARE_SIDE, System, TRIES, Times, Timing, VERSION, Version,
+    bound_percent, format_baseline, measure, median_of, median_of_runs, one_line, parse_baseline,
     root_from, run, usage, whole_nanoseconds, within,
 };
 use crate::GpuSquare;
@@ -2412,8 +2412,11 @@ fn measures_the_square_image_and_sizes_of_the_cost_benchmarks() {
         Some(format!("export const IMAGE = {};", IMAGE.0).as_str()),
         "the image"
     );
-    let mut sizes = SHOWN.to_vec();
-    sizes.push(CHECKED);
+    let mut sizes: Vec<(u32, u32)> = SHOWN
+        .iter()
+        .map(|size| (size.width(), size.height()))
+        .collect();
+    sizes.push((CHECKED.width(), CHECKED.height()));
     assert_eq!(suite_sizes(SUITE), Some(sizes), "the sizes, smallest first");
     // The square measured is built of those values, and of nothing else: written out here
     // as the suite writes them, so that a body building another square fails.
@@ -2423,11 +2426,7 @@ fn measures_the_square_image_and_sizes_of_the_cost_benchmarks() {
         Seconds::new(1001, 1000).expect("a cycle"),
     )
     .expect("a square");
-    assert_eq!(
-        measured_square().map_err(|error| error.to_string()),
-        Ok(suites),
-        "the square measured"
-    );
+    assert_eq!(MEASURED_SQUARE, suites, "the square measured");
 }
 
 #[test]
@@ -2567,8 +2566,7 @@ fn stops_measuring_at_whichever_call_the_gpu_refuses() {
     let encoding = 3 + super::WARM_UP + REPEATS;
     let calls = 4 * median + encoding;
     let encoding_from = 4 * median;
-    let room = |size: (u32, u32), of: visual_core::Holding| {
-        let size = visual_core::ImageSize::new(size.0, size.1).expect("a size");
+    let room = |size: visual_core::ImageSize, of: visual_core::Holding| {
         Refusing::no_room(size, of).to_string()
     };
     for fails in 0..calls {

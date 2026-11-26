@@ -5,7 +5,7 @@ use core::num::NonZeroU32;
 use crate::VisualError;
 
 /// Greatest common divisor, by Euclid's algorithm.
-const fn gcd(mut first: u64, mut second: u64) -> u64 {
+const fn gcd(mut first: u32, mut second: u32) -> u32 {
     // `checked_rem` is `None` exactly when `second` is 0, which ends the algorithm.
     while let Some(rest) = first.checked_rem(second) {
         first = second;
@@ -36,7 +36,7 @@ impl ImageRate {
     /// Returns [`VisualError::InvalidImageRate`] unless the fraction is reduced, its
     /// denominator is nonzero, and the rate is from 1 to [`ImageRate::MAX_PER_SECOND`]
     /// images per second.
-    pub fn new(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
+    pub const fn new(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
         let rejected = VisualError::InvalidImageRate {
             numerator,
             denominator,
@@ -45,9 +45,13 @@ impl ImageRate {
         else {
             return Err(rejected);
         };
-        let (wide_top, wide_bottom) = (u64::from(numerator), u64::from(denominator));
-        let per_second_max = wide_bottom.saturating_mul(u64::from(Self::MAX_PER_SECOND));
-        if wide_top < wide_bottom || wide_top > per_second_max || gcd(wide_top, wide_bottom) != 1 {
+        // Above `u32::MAX` images per `denominator` seconds when the product overflows: no
+        // `u32` numerator exceeds it.
+        let above_max = match denominator.checked_mul(Self::MAX_PER_SECOND) {
+            Some(per_second_max) => numerator > per_second_max,
+            None => false,
+        };
+        if numerator < denominator || above_max || gcd(numerator, denominator) != 1 {
             Err(rejected)
         } else {
             Ok(Self {
@@ -93,14 +97,12 @@ impl Seconds {
     ///
     /// Returns [`VisualError::InvalidSeconds`] unless both terms are nonzero and the
     /// fraction is reduced.
-    pub fn new(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
+    pub const fn new(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
         match (NonZeroU32::new(numerator), NonZeroU32::new(denominator)) {
-            (Some(top), Some(bottom)) if gcd(u64::from(numerator), u64::from(denominator)) == 1 => {
-                Ok(Self {
-                    numerator: top,
-                    denominator: bottom,
-                })
-            }
+            (Some(top), Some(bottom)) if gcd(numerator, denominator) == 1 => Ok(Self {
+                numerator: top,
+                denominator: bottom,
+            }),
             _ => Err(VisualError::InvalidSeconds {
                 numerator,
                 denominator,

@@ -56,6 +56,11 @@ fn rejects_sizes_outside_range() {
 #[test]
 fn rejects_images_of_more_pixels_than_every_target_holds() {
     assert_eq!(ImageSize::MAX_PIXELS, 33_554_432, "2^25 pixels");
+    assert_eq!(
+        u64::from(ImageSize::MAX_PIXELS_U32),
+        ImageSize::MAX_PIXELS,
+        "the bound the constructor checks, as a u32"
+    );
     for (width, height) in [
         (16_384, 2049),
         (2049, 16_384),

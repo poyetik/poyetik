@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `visual_core::ImageSize::new`, `visual_core::ImageRate::new` and `visual_core::Seconds::new` are `const fn`, accepting and refusing exactly as before, so that a size, a rate or a duration can be a constant checked at compile time. `visual_gpu::bench::CHECKED` and `visual_gpu::bench::SHOWN` are `ImageSize` constants (they were pairs of integers), and the square the GPU benchmark measures is built at compile time: a size or a square the library refuses fails the build instead of every measurement.
 - `visual_gpu::bench::measure` measures any GPU implementing `visual_gpu::bench::Measured` (whether it has a clock, its name, its timed renders and encodings, the images it measures into), which `GpuSquare` implements: taken as a generic, the measured GPU's path compiles to the same calls; a test's GPU refuses a render, an encoding or an allocation at any call of a measurement, and the benchmark's `System` opens its GPU through a function a test replaces with one opening none.
 
 ## [0.11.1] - 2026-11-26

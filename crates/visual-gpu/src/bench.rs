@@ -37,12 +37,24 @@ mod tests;
 /// blessed on, separated by tabs; read only exactly so ([`parse_baseline`]).
 pub const BASELINE: &str = "spec/gpu-time-baseline.txt";
 
+/// An image size the library accepts, as a constant: written only in the constants of
+/// this module, so that it is evaluated at compile time alone, a size refused failing the
+/// build; no function of it exists that a run could call.
+macro_rules! measured_size {
+    ($width:expr, $height:expr) => {
+        match ImageSize::new($width, $height) {
+            Ok(size) => size,
+            Err(_) => panic!("a measured size is refused by the library"),
+        }
+    };
+}
+
 /// The size whose time is checked: the largest of the ladder.
 ///
 /// There the image's pixels dominate what a submission costs once (measured 2026-11-16 on an
 /// Apple M2 Pro: the median of [`REPEATS`] varied by 40% from run to run at 320 × 180); how
 /// far it varies at 1280 × 720 is in [`RUNS`].
-pub const CHECKED: (u32, u32) = (1280, 720);
+pub const CHECKED: ImageSize = measured_size!(1280, 720);
 
 /// The sizes only shown, smallest first.
 ///
@@ -50,7 +62,11 @@ pub const CHECKED: (u32, u32) = (1280, 720);
 /// timestamp for many passes of a few microseconds ([`RUNS`] holds how many of each run's
 /// renders were measured, on an Apple M2 Pro; `spec/benchmarks.md` states them); other GPUs
 /// are unmeasured (roadmap #35 step 12).
-pub const SHOWN: [(u32, u32); 3] = [(64, 36), (320, 180), (640, 360)];
+pub const SHOWN: [ImageSize; 3] = [
+    measured_size!(64, 36),
+    measured_size!(320, 180),
+    measured_size!(640, 360),
+];
 
 /// The renders before measuring, so that the GPU's clocks have risen.
 pub const WARM_UP: usize = 15;
@@ -280,12 +296,20 @@ const SQUARE_CYCLE: (u32, u32) = (1001, 1000);
 const IMAGE: ImageIndex = ImageIndex(7);
 
 /// The square measured: the cost benchmarks' ([`SQUARE_RATE`], [`SQUARE_SIDE`],
-/// [`SQUARE_CYCLE`]).
-fn measured_square() -> Result<Square, Failure> {
-    let rate = ImageRate::new(SQUARE_RATE.0, SQUARE_RATE.1)?;
-    let cycle = Seconds::new(SQUARE_CYCLE.0, SQUARE_CYCLE.1)?;
-    Ok(Square::new(rate, SQUARE_SIDE, cycle)?)
-}
+/// [`SQUARE_CYCLE`]), built at compile time, so that constants the library refuses fail the
+/// build rather than every measurement.
+const MEASURED_SQUARE: Square = {
+    let (Ok(rate), Ok(cycle)) = (
+        ImageRate::new(SQUARE_RATE.0, SQUARE_RATE.1),
+        Seconds::new(SQUARE_CYCLE.0, SQUARE_CYCLE.1),
+    ) else {
+        panic!("the measured square's rate or cycle is refused by the library")
+    };
+    match Square::new(rate, SQUARE_SIDE, cycle) {
+        Ok(square) => square,
+        Err(_) => panic!("the measured square's side is refused by the library"),
+    }
+};
 
 /// What [`measure`] asks of a GPU: whether it has a clock, its name, its timed renders and
 /// encodings, and the images it measures them into, allocated by the machine.
@@ -371,8 +395,8 @@ impl Measured for GpuSquare {
 }
 
 /// What the GPU's clock measures of rendering [`IMAGE`] at `size` ([`median_of`]).
-fn median<G: Measured>(gpu: &G, square: &Square, size: (u32, u32)) -> Result<Timing, Failure> {
-    let mut image = gpu.image(ImageSize::new(size.0, size.1)?)?;
+fn median<G: Measured>(gpu: &G, square: &Square, size: ImageSize) -> Result<Timing, Failure> {
+    let mut image = gpu.image(size)?;
     median_of(&mut || Ok(gpu.timed_render(square, IMAGE, &mut image)?))
 }
 
@@ -427,7 +451,7 @@ pub fn measure<G: Measured>(gpu: &G) -> Result<Times, Failure> {
     if !gpu.has_clock() {
         return Err(NO_CLOCK.into());
     }
-    let square = measured_square()?;
+    let square = MEASURED_SQUARE;
     let checked = median(gpu, &square, CHECKED)?;
     let [small, medium, large] = SHOWN;
     let shown = [
@@ -449,9 +473,8 @@ pub fn measure<G: Measured>(gpu: &G) -> Result<Times, Failure> {
 fn encoding_median<G: Measured>(
     gpu: &G,
     square: &Square,
-    size: (u32, u32),
+    image_size: ImageSize,
 ) -> Result<Timing, Failure> {
-    let image_size = ImageSize::new(size.0, size.1)?;
     let mut image = gpu.image(image_size)?;
     let _untimed: Option<f64> = gpu.timed_render(square, IMAGE, &mut image)?;
     let mut display = gpu.display(image_size)?;
@@ -599,7 +622,7 @@ fn difference(text: &str, written: &str) -> String {
 /// The baseline of `held`, as `bless` writes it: a comment, then one line per GPU, by name.
 #[must_use]
 pub fn format_baseline(held: &BTreeMap<String, Held>) -> String {
-    let (width, height) = CHECKED;
+    let (width, height) = (CHECKED.width(), CHECKED.height());
     let mut text = format!(
         "# The GPU's time to render the square at {width}x{height}, in nanoseconds, by its own clock\n\
          # ({PROCEDURE}): one line per GPU, its name, its time, the system and the GPU's driver\n\
@@ -803,13 +826,14 @@ const CHECK: &str = "cargo run --manifest-path \"$(git rev-parse --show-toplevel
 /// Says each measured time on `out`, with how many renders its median rests on ([`say`]).
 fn report(out: &mut dyn Write, times: &Times) -> Result<(), BenchError> {
     let adapter = &times.adapter;
-    for ((width, height), time) in SHOWN.into_iter().zip(times.shown) {
+    for (size, time) in SHOWN.into_iter().zip(times.shown) {
+        let (width, height) = (size.width(), size.height());
         say(
             out,
             &format!("{adapter}: render {width}x{height}: {time} (shown)"),
         )?;
     }
-    let (width, height) = CHECKED;
+    let (width, height) = (CHECKED.width(), CHECKED.height());
     say(
         out,
         &format!(
@@ -909,8 +933,8 @@ fn checked_time(
             &one_line(&format!(
                 "{}: its clock measured {count} of {TRIES} renders at {}x{}, fewer than {REPEATS}: no time to {}",
                 measured.adapter,
-                CHECKED.0,
-                CHECKED.1,
+                CHECKED.width(),
+                CHECKED.height(),
                 command.name()
             )),
             &format!(

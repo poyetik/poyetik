@@ -31,7 +31,15 @@ fn computes_the_greatest_common_divisor() {
 
 #[test]
 fn accepts_reduced_rates_within_range() {
-    for (numerator, denominator) in [(1, 1), (24_000, 1001), (30_000, 1001), (1000, 1), (25, 1)] {
+    // The last: a denominator whose thousandfold overflows `u32`, about one image a second.
+    for (numerator, denominator) in [
+        (1, 1),
+        (24_000, 1001),
+        (30_000, 1001),
+        (1000, 1),
+        (25, 1),
+        (u32::MAX, u32::MAX - 1),
+    ] {
         let rate = ImageRate::new(numerator, denominator);
         assert_eq!(
             rate.map(|accepted| (accepted.numerator(), accepted.denominator())),
