@@ -654,6 +654,63 @@ describe("withStatus", () => {
   it("keeps the title and done flag", () => {
     expect(withStatus(card(1, "doing", { steps: [{ title: "A", done: false }] }))).toEqual([{ title: "A", done: false, status: "doing" }]);
   });
+
+  /** Statuses of steps given as `[done, block]`, in a card of the `doing` column. */
+  const blocked = (steps: readonly (readonly [boolean, number | undefined])[]): string[] =>
+    withStatus(
+      card(1, "doing", {
+        steps: steps.map(([done, block], i) => (block === undefined ? { title: String(i), done } : { title: String(i), done, block })),
+      }),
+    ).map((step) => step.status);
+
+  it("puts in progress the first step not done of the lowest open block, then the steps in no block", () => {
+    // A later block's step comes first in the card: the lower block is still open.
+    expect(
+      blocked([
+        [true, 1],
+        [false, 2],
+        [false, 1],
+      ]),
+    ).toEqual(["done", "todo", "doing"]);
+    // A step in no block comes first in the card: every block before it.
+    expect(
+      blocked([
+        [false, undefined],
+        [false, 3],
+        [false, 2],
+        [false, 2],
+      ]),
+    ).toEqual(["todo", "todo", "doing", "todo"]);
+    // Every block done: the first step not done in no block.
+    expect(
+      blocked([
+        [true, 1],
+        [false, undefined],
+        [false, undefined],
+      ]),
+    ).toEqual(["done", "doing", "todo"]);
+    // The highest block number a step may hold.
+    expect(
+      blocked([
+        [false, Number.MAX_SAFE_INTEGER],
+        [false, undefined],
+      ]),
+    ).toEqual(["doing", "todo"]);
+    expect(
+      blocked([
+        [true, 1],
+        [true, undefined],
+      ]),
+    ).toEqual(["done", "done"]);
+  });
+
+  it.each(["later", "next", "done"] as const)("has no step in progress in a card with blocks in the %s column", (column) => {
+    const steps = [
+      { title: "A", done: false, block: 2 },
+      { title: "B", done: false, block: 1 },
+    ];
+    expect(withStatus(card(1, column, { steps })).map((step) => step.status)).toEqual(["todo", "todo"]);
+  });
 });
 
 describe("parseStepNumber", () => {
@@ -691,6 +748,20 @@ describe("step commands", () => {
     expect(steps(once)).toEqual(["A:true", "B:false", "C:false"]);
     expect(steps(completeStep(once, 1, undefined, LATER))).toEqual(["A:true", "B:true", "C:false"]);
     expect(once.cards[0]?.updatedAt).toBe(LATER);
+  });
+
+  it("completes by default the step in progress of the lowest open block", () => {
+    const blocks = board([
+      {
+        ...card(1, "doing"),
+        steps: [
+          { title: "A", done: true, block: 1 },
+          { title: "B", done: false, block: 2 },
+          { title: "C", done: false, block: 1 },
+        ],
+      },
+    ]);
+    expect(completeStep(blocks, 1, undefined, LATER).cards[0]?.steps.map((step) => step.done)).toEqual([true, false, true]);
   });
 
   it("completes a given step", () => {

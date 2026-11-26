@@ -17,4 +17,4 @@ pnpm dev            # http://localhost:4321
 pnpm check          # types, lint, unit tests at 100% coverage, build, end-to-end tests
 ```
 
-In a card of the `doing` column, the first step not done is shown "In progress"; elsewhere no step is. A step may belong to a review block (`pnpm roadmap step block`): the page groups a card's steps by block, and a block, ended by a deep review, its decided fixes and a pull request whose full check is green, is done when all its steps are.
+In a card of the `doing` column, the first step not done of the lowest review block still open is shown "In progress", or, when every block is done, the first not done in no block (`currentStepIndex`); elsewhere no step is. A step may belong to a review block (`pnpm roadmap step block`): the page groups a card's steps by block, and a block, ended by a deep review, its decided fixes and a pull request whose full check is green, is done when all its steps are.

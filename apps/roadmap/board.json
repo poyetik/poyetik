@@ -1278,7 +1278,7 @@
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-25",
+      "updatedAt": "2026-11-26",
       "tasks": [
         {
           "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
@@ -1346,7 +1346,7 @@
           "block": 3
         },
         {
-          "title": "Messages and rates: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE)",
+          "title": "Messages and rates, after step 40, with step 41: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE)",
           "done": false,
           "block": 4
         },

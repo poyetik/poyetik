@@ -117,7 +117,9 @@ describe("help", () => {
     for (const action of ["add", "done", "undo", "edit", "rm", "block"]) {
       expect(HELP).toContain(`  step ${action} <id>`);
     }
-    expect(HELP).toContain("Steps: in a card of the doing column, the first step that is not done is in progress.");
+    expect(HELP).toContain(
+      "Steps: in a card of the doing column, the first step not done of the lowest open block, else the first not done in no block, is in progress.",
+    );
     expect(HELP).toContain(
       "Blocks: a block ends with a deep review, its decided fixes, and a pull request whose full check is green; it is done when all its steps are.",
     );
@@ -694,6 +696,9 @@ describe("step", () => {
       "  Block 2 (step 2) ends with a deep review, its decided fixes, and a pull request whose full check is green",
       `created ${DAY}, updated ${DAY}`,
     ]);
+    expect(run(["step", "undo", "1", "3"], cli.io)).toBe(0);
+    expect(run(["step", "done", "1"], cli.io)).toBe(0);
+    expect(boardOf(cli).cards[0]?.steps.map((step) => step.done)).toEqual([true, false, true]);
     cli.out.length = 0;
     expect(run(["step", "block", "1", "2", "none"], cli.io)).toBe(0);
     expect(cli.out).toEqual([

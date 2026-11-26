@@ -16,7 +16,7 @@ export const COLUMNS = [
 /** Identifier of a column. */
 export type ColumnId = (typeof COLUMNS)[number]["id"];
 
-/** One step of a card. In a card of the `doing` column, the first step that is not done is the one in progress. */
+/** One step of a card. In a card of the `doing` column, one step not done is the one in progress (see `currentStepIndex`). */
 export interface Step {
   /** What the step is, as shown on the card. */
   readonly title: string;
@@ -30,7 +30,7 @@ export interface Step {
   readonly block?: number;
 }
 
-/** Display status of a step: done, in progress (the first step not done, only in the `doing` column) or still to do. */
+/** Display status of a step: done, in progress (see `currentStepIndex`, only in the `doing` column) or still to do. */
 export type StepStatus = "done" | "doing" | "todo";
 
 /** A roadmap card (ticket) with its ordered steps. */
@@ -421,11 +421,26 @@ export interface StepWithStatus extends Step {
 }
 
 /**
- * Index of the step in progress: the first step not done, and only for a card in the `doing` column.
- * A card waiting in another column has nothing in progress. Returns -1 when there is none.
+ * Index of the step in progress, only for a card in the `doing` column: the first step not done of the lowest-numbered
+ * review block that still has one, since a block is finished before the next begins; when every block is done, the
+ * first step not done in no block. Within a block, card order: a block whose work goes in another order says so in its
+ * steps' words, and its steps are ticked by number. A card waiting in another column has nothing in progress.
+ * Returns -1 when there is none.
  */
 export function currentStepIndex(card: Pick<Card, "column" | "steps">): number {
-  return card.column === "doing" ? card.steps.findIndex((step) => !step.done) : -1;
+  if (card.column !== "doing") {
+    return -1;
+  }
+  let current = -1;
+  let lowest = Number.POSITIVE_INFINITY;
+  card.steps.forEach((step, i) => {
+    const rank = step.block ?? Number.POSITIVE_INFINITY;
+    if (!step.done && (current === -1 || rank < lowest)) {
+      current = i;
+      lowest = rank;
+    }
+  });
+  return current;
 }
 
 /** Status of each step: done, the one in progress (see {@link currentStepIndex}), the rest to do. */

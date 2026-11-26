@@ -84,7 +84,7 @@ export const HELP = `usage: roadmap <command> [options]
 
 A value starting with "-" goes after --: roadmap step add 3 -- -title
 Columns: ${COLUMNS.map((column) => `${column.id} (${column.title})`).join(", ")}
-Steps: in a card of the doing column, the first step that is not done is in progress.
+Steps: in a card of the doing column, the first step not done of the lowest open block, else the first not done in no block, is in progress.
 Blocks: a block ends with ${BLOCK_END}; it is done when all its steps are.`;
 
 /** The options `parseArgs` reads; each command accepts only some of them (see `COMMAND_OPTIONS`). */

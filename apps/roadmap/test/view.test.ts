@@ -79,7 +79,7 @@ describe("toView", () => {
         done: false,
         steps: [
           { title: "A", done: true, block: 2, status: "done", number: 1 },
-          { title: "D", done: false, block: 2, status: "todo", number: 4 },
+          { title: "D", done: false, block: 2, status: "doing", number: 4 },
           { title: "E", done: true, block: 2, status: "done", number: 5 },
         ],
       },
@@ -88,11 +88,13 @@ describe("toView", () => {
         heading: "Not in a block",
         done: false,
         steps: [
-          { title: "C", done: false, status: "doing", number: 3 },
+          { title: "C", done: false, status: "todo", number: 3 },
           { title: "F", done: true, status: "done", number: 6 },
         ],
       },
     ]);
+    // The step in progress is the open block's, before the step in no block that comes first in the card.
+    expect(toView(board).columns[2]?.cards[0]?.currentStep).toBe("D");
     const allIn = { ...board, cards: [{ ...card(1, "next", "2026-11-01"), steps: [{ title: "A", done: false, block: 1 }] }] };
     expect(toView(allIn).columns[1]?.cards[0]?.groups).toEqual([
       { block: 1, heading: "Block 1: step 1", done: false, steps: [{ title: "A", done: false, block: 1, status: "todo", number: 1 }] },
