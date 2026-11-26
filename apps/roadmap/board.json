@@ -544,7 +544,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-24",
+      "updatedAt": "2026-11-26",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -1236,6 +1236,10 @@
         },
         {
           "title": "Descriptions tied: each crate's and package's description equals its README row's text up to its parenthetical, by a gate with fixtures; first the descriptions of audio-core (math layer, execution modes, output stage, settings), audio-testkit (measurements) and audio-cli (render formats, live vector, algorithm versions, rewriting references)",
+          "done": false
+        },
+        {
+          "title": "Roadmap reader and page, from the block-ends review: board.json read back only as the CLI writes it (a number written 1.0 or 1e0, or a duplicate key, which JSON.parse accepts, refused with the command that rewrites the file); a step number of three digits measured clear of its card's border; a card's steps in no block, shown as one list, audited by axe as an enumerated state of the page",
           "done": false
         }
       ]
