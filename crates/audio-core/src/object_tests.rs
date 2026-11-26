@@ -750,6 +750,28 @@ fn drives_with_values_within_their_range_only_flushed_first() {
             "{value} at frame {frame}: the first parameter's refusal first"
         );
     }
+}
+
+/// Two frames refused: the first is told.
+#[test]
+fn refuses_the_first_of_two_driven_frames_out_of_range() {
+    let first = [Binary64::new(0.25); 64];
+    let second = [Binary64::new(20_000.0); 64];
+    let mut twice = first;
+    twice[40] = Binary64::new(f64::INFINITY);
+    twice[17] = Binary64::new(-3.0);
+    assert_eq!(
+        DrivenValues::of(&TWO, vec![twice, second]).map(|_| ()),
+        Err(ParamError::DrivenOutOfRange {
+            kind: "two~",
+            name: "a",
+            frame: 17,
+            bits: (-3.0_f64).to_bits(),
+            minimum: -1.0_f64,
+            maximum: 2.0_f64,
+        }),
+        "the first of two frames refused"
+    );
     let mut wrong = second;
     wrong[9] = Binary64::new(-SMALLEST);
     assert_eq!(

@@ -342,7 +342,7 @@ fn writes_a_nan_with_its_bits() {
 
 #[test]
 fn reads_a_binary64_span_with_its_nans_canonical_its_subnormals_flushed_never_the_padding() {
-    let run = BufferRun::<Binary64>::new(64, 7, 1, 128).expect("a run");
+    let run = BufferRun::<Binary64>::new(64, 9, 1, 192).expect("a run");
     let mut memory = vec![UNTOUCHED; 64];
     for bits in [
         0xfff0_0000_0000_0001_u64,
@@ -350,13 +350,15 @@ fn reads_a_binary64_span_with_its_nans_canonical_its_subnormals_flushed_never_th
         1,
         0x8000_0000_0000_0001,
         0x000f_ffff_ffff_ffff,
+        0x800f_ffff_ffff_ffff,
         0x0010_0000_0000_0000,
         0xfff0_0000_0000_0000,
+        0x7ff0_0000_0000_0000,
     ] {
         memory.extend(bits.to_le_bytes());
     }
-    memory.extend([0xff; 8]);
-    let mut out = [Binary64::new(0.25); 7];
+    memory.extend([0xff; 56]);
+    let mut out = [Binary64::new(0.25); 9];
     assert_eq!(run.read(0, &memory, &mut out), Ok(()), "read");
     assert_eq!(
         out.map(Binary64::bits),
@@ -366,17 +368,19 @@ fn reads_a_binary64_span_with_its_nans_canonical_its_subnormals_flushed_never_th
             0,
             0x8000_0000_0000_0000,
             0,
+            0x8000_0000_0000_0000,
             0x0010_0000_0000_0000,
             0xfff0_0000_0000_0000,
+            0x7ff0_0000_0000_0000,
         ],
-        "a NaN canonical, a subnormal a zero of its sign, the smallest normal, -0 and an \
-         infinity kept"
+        "a NaN canonical, a subnormal a zero of its sign, the smallest normal, -0 and the \
+         infinities kept"
     );
 }
 
 #[test]
 fn reads_a_binary32_span_with_its_nans_canonical_its_subnormals_flushed_never_the_padding() {
-    let run = BufferRun::<Binary32>::new(0, 7, 1, 64).expect("a run");
+    let run = BufferRun::<Binary32>::new(0, 8, 1, 64).expect("a run");
     let mut memory = Vec::new();
     for bits in [
         0xff80_0001_u32,
@@ -384,13 +388,14 @@ fn reads_a_binary32_span_with_its_nans_canonical_its_subnormals_flushed_never_th
         1,
         0x8000_0001,
         0x007f_ffff,
+        0x807f_ffff,
         0x0080_0000,
         0xff80_0000,
     ] {
         memory.extend(bits.to_le_bytes());
     }
-    memory.extend([0xff; 36]);
-    let mut out = [Binary32::from_raw(0.25); 7];
+    memory.extend([0xff; 32]);
+    let mut out = [Binary32::from_raw(0.25); 8];
     assert_eq!(run.read(0, &memory, &mut out), Ok(()), "read");
     assert_eq!(
         out.map(Binary32::bits),
@@ -400,6 +405,7 @@ fn reads_a_binary32_span_with_its_nans_canonical_its_subnormals_flushed_never_th
             0,
             0x8000_0000,
             0,
+            0x8000_0000,
             0x0080_0000,
             0xff80_0000
         ],

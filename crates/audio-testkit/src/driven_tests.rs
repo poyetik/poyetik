@@ -78,6 +78,12 @@ const THIRDS: u8 = 25;
 const SUBNORMAL: u8 = 26;
 /// An instance created with values takes the default gain, whatever it is given.
 const CREATED_OTHERWISE: u8 = 27;
+/// The driven body advances a phase of its own until the steady body has rendered a block.
+const SEPARATE_AT_FIRST: u8 = 28;
+/// The driven body leaves the steady one the phase after the first block of its run.
+const FIRST_OF_RUN: u8 = 29;
+/// The driven body takes a block whose first eight frames are equal as constant.
+const FIRST_EIGHT: u8 = 30;
 
 /// Outputs a ramp of `hertz` cycles per second, with a quarter of its input, times a gain;
 /// `CHEAT` says how it goes wrong.
@@ -85,8 +91,13 @@ const CREATED_OTHERWISE: u8 = 27;
 struct Probe<const CHEAT: u8> {
     /// Its phase, in cycles.
     phase: f64,
-    /// The phase of the driven body of [`SEPARATE_PHASE`], in cycles.
+    /// The phase of the driven body of [`SEPARATE_PHASE`], [`SEPARATE_AT_FIRST`] and
+    /// [`FIRST_OF_RUN`], in cycles.
     separate: f64,
+    /// Whether the steady body has rendered a block.
+    steadied: bool,
+    /// Whether the driven body rendered the last block.
+    driven: bool,
     /// The bits of the first parameter the driven body of [`CHANGE_ON_FIRST`] last took.
     first: u64,
     /// Cycles per frame.
@@ -104,6 +115,8 @@ impl<const CHEAT: u8> Probe<CHEAT> {
         Self {
             phase: 0.0,
             separate: 0.0,
+            steadied: false,
+            driven: false,
             first: hertz.raw().to_bits(),
             step: hertz.raw() / rate,
             gain: if CHEAT == CREATED_OTHERWISE {
@@ -130,6 +143,8 @@ impl<const CHEAT: u8> Probe<CHEAT> {
 
 impl<S: Sample, const N: usize, const CHEAT: u8> Object<S, N> for Probe<CHEAT> {
     fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+        self.steadied = true;
+        self.driven = false;
         for (output, input) in outputs.iter_mut().zip(inputs) {
             for (out, value) in output.iter_mut().zip(input) {
                 *out = self.frame(*value);
@@ -166,19 +181,36 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Driven<S, N, 2> for Probe<CHEAT
         if CHEAT == ALLOCATES || CHEAT == ALLOCATES_OFFLINE {
             drop(black_box(Vec::<u8>::with_capacity(8)));
         }
-        if CHEAT == SEPARATE_PHASE {
+        let first_of_run = !self.driven;
+        self.driven = true;
+        if CHEAT == FIRST_OF_RUN && first_of_run {
+            self.separate = self.phase;
+        }
+        let apart = CHEAT == SEPARATE_PHASE
+            || CHEAT == FIRST_OF_RUN
+            || (CHEAT == SEPARATE_AT_FIRST && !self.steadied);
+        if apart {
             core::mem::swap(&mut self.phase, &mut self.separate);
         }
-        let same =
-            |block: &Block<Binary64, N>| block[0].raw().to_bits() == block[1].raw().to_bits();
-        let constant = CHEAT == FIRST_TWO && same(hertz) && same(gains);
+        let opening = match CHEAT {
+            FIRST_TWO => 2,
+            FIRST_EIGHT => 8,
+            _ => 0,
+        };
+        let same = |block: &Block<Binary64, N>| {
+            block
+                .iter()
+                .take(opening)
+                .all(|value| value.raw().to_bits() == block[0].raw().to_bits())
+        };
+        let constant = opening > 0 && same(hertz) && same(gains);
         for (output, input) in outputs.iter_mut().zip(inputs) {
             for (frame, (out, value)) in output.iter_mut().zip(input).enumerate() {
                 let at = match CHEAT {
                     FIRST_FRAME => 0,
                     LATE => frame.saturating_sub(1),
                     EVERY_16 => frame.saturating_sub(frame % 16),
-                    FIRST_TWO if constant => 0,
+                    _ if constant => 0,
                     _ => frame,
                 };
                 let (mut tone, mut gain) = (hertz[at], gains[at]);
@@ -232,8 +264,11 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Driven<S, N, 2> for Probe<CHEAT
                 }
             }
         }
-        if CHEAT == SEPARATE_PHASE {
+        if apart {
             core::mem::swap(&mut self.phase, &mut self.separate);
+        }
+        if CHEAT == FIRST_OF_RUN && first_of_run {
+            self.phase = self.separate;
         }
     }
 }
@@ -373,6 +408,12 @@ const DIFFERS: &str = "the run as the engine renders it gives other bits than th
 /// Every other block steady, from the first.
 const ALTERNATE: [bool; BLOCKS] = [true, false, true, false, true, false, true, false];
 
+/// Every other block steady, from the second.
+const ALTERNATE_LATER: [bool; BLOCKS] = [false, true, false, true, false, true, false, true];
+
+/// Runs of both bodies.
+const RUNS: [bool; BLOCKS] = [false, false, true, true, true, false, true, false];
+
 #[test]
 fn refuses_a_box_whose_bodies_differ() {
     for (name, motion, result) in [
@@ -419,6 +460,18 @@ fn refuses_a_box_wrong_in_one_dimension_of_the_runs_only() {
             laws::<SEPARATE_PHASE>(),
             refused_at(64, 8_000, special, "Held(1)", ALTERNATE, DIFFERS),
         ),
+        // Right whenever the steady body renders first, or never.
+        (
+            "a phase of its own until the steady body renders",
+            laws::<SEPARATE_AT_FIRST>(),
+            refused_at(64, 8_000, special, "Held(1)", ALTERNATE_LATER, DIFFERS),
+        ),
+        // Right whenever the driven body renders one block at a time, or every block.
+        (
+            "the phase of the first block of a run",
+            laws::<FIRST_OF_RUN>(),
+            refused_at(64, 8_000, special, "Held(1)", RUNS, DIFFERS),
+        ),
         (
             "the heap while taking values",
             laws::<ALLOCATES_IN_SET>(),
@@ -441,6 +494,12 @@ fn refuses_a_box_wrong_in_one_dimension_of_the_runs_only() {
             "a block of two equal frames taken as constant",
             laws::<FIRST_TWO>(),
             refused_at(64, 8_000, special, "Step(0)", row, DIFFERS),
+        ),
+        // Right while the values change within the first eight frames of a block.
+        (
+            "a block of eight equal frames taken as constant",
+            laws::<FIRST_EIGHT>(),
+            refused_at(64, 8_000, special, "Step(1)", row, DIFFERS),
         ),
         // Right at the first rate.
         (
@@ -546,6 +605,32 @@ fn moves_each_parameter_as_its_motion_says() {
         [[top, one]; 2],
         "a set held to the end"
     );
+}
+
+/// The steps reach every frame of a block as the one where the values change, each once.
+#[test]
+fn steps_at_each_frame_of_a_block_once() {
+    use super::{Motion, Run, STEPS};
+    let spec = spec::<Probe<RIGHT>, 2>(&[OUT]);
+    assert_eq!(STEPS, 8, "8 runs of 8 blocks");
+    let mut frames = Vec::new();
+    for first in 0..8 {
+        let motion = (Motion::Step(first), ParamValues::defaults(spec));
+        let run = Run::new::<1>(spec, motion, [false; BLOCKS]);
+        for block in 0..8 {
+            let values = moved(&run, block, 0..64);
+            let changes: Vec<usize> = (1..64)
+                .filter(|&frame| values[frame] != values[frame - 1])
+                .collect();
+            // None inside the block: at its first frame.
+            frames.push(match changes.as_slice() {
+                [] => 0,
+                [at] => *at,
+                more => panic!("several changes in one block: {more:?}"),
+            });
+        }
+    }
+    assert_eq!(frames, (0..64).collect::<Vec<_>>(), "each frame once");
 }
 
 #[test]
