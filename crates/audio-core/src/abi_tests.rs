@@ -117,6 +117,39 @@ fn accepts_major_0_only_at_the_minor_declared() {
         assert_eq!(version.check(&declared), expected, "0.{minor}");
     }
     assert_eq!(ContractVersion::new(1, 0).check(&declared), Ok(()), "1.0");
+    // Two minors of one major, in either order: the last of them is the one known.
+    for several in [
+        [(0, 1), (0, 3), (2, 2), (2, 5)],
+        [(2, 5), (0, 3), (2, 2), (0, 1)],
+    ]
+    .map(|given| given.map(|(major, minor)| ContractVersion::new(major, minor)))
+    {
+        for (version, expected) in [
+            (ContractVersion::new(0, 3), Ok(())),
+            (
+                ContractVersion::new(0, 1),
+                Err(VersionError::Unfrozen {
+                    version: ContractVersion::new(0, 1),
+                    known: 3,
+                }),
+            ),
+            (ContractVersion::new(2, 4), Ok(())),
+            (ContractVersion::new(2, 5), Ok(())),
+            (
+                ContractVersion::new(2, 6),
+                Err(VersionError::LaterMinor {
+                    version: ContractVersion::new(2, 6),
+                    last: 5,
+                }),
+            ),
+        ] {
+            assert_eq!(
+                version.check(&several),
+                expected,
+                "{version} of {several:?}"
+            );
+        }
+    }
 }
 
 #[test]

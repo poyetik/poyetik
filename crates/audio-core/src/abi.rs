@@ -79,24 +79,28 @@ impl ContractVersion {
     ///
     /// Returns the first of these that holds: [`VersionError::UnsupportedMajor`] when no
     /// declared version has this major, [`VersionError::Unfrozen`] when the major is 0 and
-    /// this minor is not the one declared, [`VersionError::LaterMinor`] when this minor is
+    /// this minor is not the last declared, [`VersionError::LaterMinor`] when this minor is
     /// later than it.
     pub fn check(self, declared: &[Self]) -> Result<(), VersionError> {
-        let Some(known) = declared.iter().find(|known| known.major == self.major) else {
+        let minors = declared
+            .iter()
+            .filter(|known| known.major == self.major)
+            .map(|known| known.minor);
+        let Some(last) = minors.max() else {
             return Err(VersionError::UnsupportedMajor { version: self });
         };
-        if self.major == 0 && self.minor != known.minor {
+        if self.major == 0 && self.minor != last {
             return Err(VersionError::Unfrozen {
                 version: self,
-                known: known.minor,
+                known: last,
             });
         }
-        if self.minor <= known.minor {
+        if self.minor <= last {
             Ok(())
         } else {
             Err(VersionError::LaterMinor {
                 version: self,
-                last: known.minor,
+                last,
             })
         }
     }
