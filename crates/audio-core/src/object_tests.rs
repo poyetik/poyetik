@@ -894,7 +894,9 @@ fn keeps_the_box_type_its_values_were_checked_against() {
 }
 
 /// A box type whose instance outputs its parameter value then the sample rate in
-/// hertz, frame by frame, so that a test sees what it was created with.
+/// hertz, frame by frame, so that a test sees what it was created with. Its driven body
+/// outputs the values it is driven by instead: a probe whose bodies differ on purpose, never
+/// held to the driven laws.
 #[derive(Debug)]
 struct Told([f64; 2]);
 

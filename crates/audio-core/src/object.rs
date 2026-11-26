@@ -707,8 +707,8 @@ impl<const N: usize> DrivenValues<N> {
 /// The parameter values a box is created with, borrowed from [`ParamValues`].
 ///
 /// They keep its promise: one per parameter of the box type, in order, each within its
-/// range, in binary64, none below 2^-126 in magnitude but zero. Passed by value, as cheap as a slice
-/// (two words: a reference to the owned values made loading a plan dearer,
+/// range, in binary64, none below 2^-126 in magnitude but zero. Passed by value, as cheap
+/// as a slice (two words: a reference to the owned values made loading a plan dearer,
 /// `spec/benchmarks.md`), and read as one.
 #[derive(Debug, Clone, Copy)]
 pub struct Params<'values>(&'values [Binary64]);
@@ -716,9 +716,9 @@ pub struct Params<'values>(&'values [Binary64]);
 impl Params<'_> {
     /// The values as an array, one per parameter of a box type of `K`, which the engine hands
     /// a box ([`Create`], [`Typed`]) for it to take apart by pattern (`[frequency]`); none when
-    /// there are not `K`. The values of a box
-    /// type are as many as its parameters ([`ParamValues`]), so it is never none where `K`
-    /// is that number, as [`Create`] requires of a box type.
+    /// there are not `K`. The values of a box type are as many as its parameters
+    /// ([`ParamValues`]), so it is never none where `K` is that number, as [`Create`] requires
+    /// of a box type.
     #[must_use]
     pub fn array<const K: usize>(self) -> Option<[Binary64; K]> {
         self.0.try_into().ok()
@@ -1287,8 +1287,9 @@ impl ObjectSpec {
     /// `algorithm_version`, whose parameters and instances are those of `T`
     /// ([`Create::PARAMS`], [`Create::create`]).
     ///
-    /// A `const fn`, so that a box type is a static. Its description (names and descriptions
-    /// present, port and parameter names unique) is checked by the box laws
+    /// A `const fn`, so that a box type is a static. Its description, by the rules of a
+    /// module's (`spec/box-contract.md`, section 4: texts that show, names that are unique and
+    /// hold no character a message escapes), is checked by the box laws
     /// (`audio_testkit::check_description`).
     #[must_use]
     pub const fn new<T: Create<K>, const K: usize>(
@@ -1405,16 +1406,18 @@ pub trait Driven<S: Sample, const N: usize, const K: usize>: Object<S, N> {
     /// being otherwise what it was: a box derives from them what it needs, as at its creation.
     /// Called between two blocks; must not allocate or free memory, lock or block.
     ///
-    /// The engine calls it after a driven block whose last values stay, before the next
-    /// [`Object::process`], so a box need not remember the values it was driven by.
+    /// After a driven block whose last values stay, it is called before the next
+    /// [`Object::process`], so a box need not remember the values it was driven by: by the
+    /// driven laws (`audio_testkit::check_driven_laws`), and by a plan from #12 step 41.
     fn set(&mut self, params: [Binary64; K]);
 
     /// Processes one block as [`Object::process`] does, frame `f` of it with the values
     /// `params[..][f]`, as if [`Driven::set`] had given them before that frame: under the same
     /// rules (every sample of every outlet written, no heap, no lock).
     ///
-    /// Each value is within its parameter's range, finite, none below 2^-126 in magnitude but zero: the
-    /// engine gives them as [`DrivenValues`], which checks them.
+    /// Each value is within its parameter's range, finite, none below 2^-126 in magnitude
+    /// but zero: an instance takes them as [`DrivenValues`], which checks them
+    /// ([`BoxInstance::run_driven`]; a plan calls it from #12 step 41).
     fn process_driven(
         &mut self,
         inputs: &[Block<S, N>],
@@ -1481,6 +1484,10 @@ pub struct Typed<I, const K: usize> {
 impl<I, const K: usize> Typed<I, K> {
     /// `instance`, an instance of the box type `spec` created from values checked against
     /// it, as the engine holds it.
+    ///
+    /// `K` is that box type's number of parameters, as [`Create`] gives it. Every box has a
+    /// body for none ([`Driven`]), so a `K` of 0 compiles for a box with parameters, an
+    /// instance that takes no values of its own box type: the driven laws refuse it.
     #[must_use]
     pub const fn new(spec: &'static ObjectSpec, instance: I) -> Self {
         Self {

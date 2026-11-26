@@ -153,7 +153,7 @@ pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
 /// block ([`run_blocks`]). Returns the outputs and the heap operations made while
 /// processing.
 ///
-/// The parameters are given as a plan gives them, as `audio_core::Params`.
+/// The parameters are given as a plan gives them, as `audio_core::ParamValues`.
 ///
 /// # Errors
 ///

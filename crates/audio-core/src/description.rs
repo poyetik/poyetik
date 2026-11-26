@@ -41,9 +41,8 @@ pub enum TextKind {
 /// line or reorder what is shown: a control character (C0, DEL and C1), a bidirectional
 /// formatting character, or the line or paragraph separator, the characters a message
 /// escapes (`spec/safe-message-vectors.json`); and in a name, a default-ignorable code
-/// point (Unicode's `Default_Ignorable_Code_Point`, a set its stability policy keeps),
-/// which shows nothing, so that `gain` and `gain` followed by U+200B would read as one
-/// name. [`Fault::Blank`] says it shows nothing: it is empty, or whitespace and
+/// point (Unicode's `Default_Ignorable_Code_Point`, as its version 14.0 lists it), which
+/// shows nothing, so that `gain` and `gain` followed by U+200B would read as one name. [`Fault::Blank`] says it shows nothing: it is empty, or whitespace and
 /// default-ignorable code points alone. The name of a box type also refuses whitespace,
 /// which the reader checks after this.
 #[must_use]
@@ -76,7 +75,7 @@ const fn unsafe_to_show(character: char) -> bool {
         )
 }
 
-/// Whether `character` is a default-ignorable code point (Unicode's
+/// Whether `character` is a default-ignorable code point (Unicode 14.0's
 /// `DerivedCoreProperties.txt`, `Default_Ignorable_Code_Point`).
 const fn default_ignorable(character: char) -> bool {
     matches!(
@@ -125,7 +124,7 @@ pub const RESERVED_PORT_KINDS: [u8; 2] = [1, 2];
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Response {
-    /// They do not, or the box does not say how.
+    /// The box declares none: a loop through it needs a delay (decision 3).
     None,
     /// Linearly.
     Linear,
@@ -189,7 +188,9 @@ impl<'bytes> DescribedParam<'bytes> {
         self.description
     }
 
-    /// The binary64 bits of its default, as written.
+    /// The binary64 bits of its default, as written: a host flushes it as a plan flushes a
+    /// value (below 2^-126 in magnitude, a zero of its sign) before it gives it to a module
+    /// (`spec/box-contract.md`, section 5, step 1).
     #[must_use]
     pub const fn default_bits(&self) -> u64 {
         self.bits[0]

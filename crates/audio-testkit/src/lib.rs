@@ -11,13 +11,13 @@
 //! and at every sample rate of the shared [`matrix`], with the
 //! parameters at their minimum, default and maximum, at a value away from the default
 //! (see `audio_battery::param_sets`), and at `-0.0` and the smallest normal binary32 value (each
-//! where the range accepts it, else the default), given as `audio_core::Params`, as a plan gives
-//! them.
+//! where the range accepts it, else the default), given as `audio_core::ParamValues`, as a plan
+//! gives them.
 //!
 //! The laws:
-//! - **description**: names and descriptions are present, port and parameter names are
-//!   unique (a parameter's range is finite and holds its default by construction:
-//!   `audio_core::ParamSpec::new`);
+//! - **description**: the rules of a module's description (`spec/box-contract.md`, section 4)
+//!   that apply to a built-in box type, listed by [`check_description`] (a parameter's range
+//!   is finite and holds its default by construction: `audio_core::ParamSpec::new`);
 //! - **determinism**: two fresh instances fed the same inputs produce bit-identical
 //!   outputs, the second with its outputs set to a NaN on entry to every block where the
 //!   first has +0: a box writes every sample of every outlet, whatever they hold on entry

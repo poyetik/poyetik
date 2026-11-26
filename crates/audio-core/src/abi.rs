@@ -558,7 +558,8 @@ impl<S: Crossing> BufferRun<S> {
     }
 
     /// Reads the first frames of buffer `index` of the run in `memory`, as many as `samples`
-    /// holds, into `samples`, every NaN made canonical, never the rest of the buffer.
+    /// holds, into `samples`, every NaN made canonical and every subnormal number a zero of its
+    /// sign ([`Crossing::take`]), never the rest of the buffer.
     ///
     /// # Errors
     ///
