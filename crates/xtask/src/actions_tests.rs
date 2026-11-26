@@ -2490,3 +2490,59 @@ fn needs_prlimit_on_linux_only_whatever_machine_runs_the_tests() {
     );
     assert_eq!(without_prlimit("macos"), Ok(()), "on a Mac");
 }
+
+#[test]
+fn stops_each_check_at_whichever_call_fails() {
+    // The harness of `stops_each_gate_at_whichever_read_fails`, over each mode's whole check:
+    // the actions no gate rule runs (the coverage, the mutation steps, the tree's state, the
+    // reviews of unviable mutants) refuse a call broken too, and the check stops there.
+    let mut unnamed = Vec::new();
+    for mode in [CHANGES_MODE, Mode::Full { jobs: FAKE_JOBS }] {
+        let steps = check_steps(mode);
+        let mut whole = passing();
+        assert_eq!(
+            run_steps(&steps, &mut whole, &mut Vec::new()),
+            Ok(()),
+            "{mode:?}"
+        );
+        let calls: BTreeSet<String> = whole.ran.into_iter().collect();
+        for call in &calls {
+            let mut fake = passing();
+            fake.broken = Some(call.strip_prefix("capture ").unwrap_or(call).to_owned());
+            let mut out = Vec::new();
+            let failed = run_steps(&steps, &mut fake, &mut out).map_err(|failure| failure.summary);
+            // Either the check fails, or it goes on and says so: an optional step (a proof
+            // record, a test order) on one line naming what it could not do. Either way the
+            // call is named, by its last word (a path, a command's last argument).
+            let said = failed
+                .err()
+                .unwrap_or_else(|| String::from_utf8_lossy(&out).into_owned());
+            let last = ["read ", "capture ", "list ", "write "]
+                .iter()
+                .find_map(|kind| call.strip_prefix(kind))
+                .unwrap_or(call)
+                .split_whitespace()
+                .last()
+                .unwrap_or_default();
+            // A merge base before the last of its list is tried for a later one to stand in:
+            // a branch with no upstream is the usual case, which the fallback serves.
+            let tried = [&crate::MUTATION_BASES[..], &crate::MAIN_BASES[..]]
+                .iter()
+                .any(|bases| {
+                    bases.split_last().is_some_and(|(_, before)| {
+                        before
+                            .iter()
+                            .any(|base| call == &format!("capture git merge-base HEAD {base}"))
+                    })
+                });
+            if !said.contains(last) && !tried {
+                unnamed.push(format!("{mode:?} | {call}"));
+            }
+        }
+    }
+    assert_eq!(
+        unnamed,
+        Vec::<String>::new(),
+        "each broken call refused or said"
+    );
+}
