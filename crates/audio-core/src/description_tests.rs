@@ -519,6 +519,22 @@ fn refuses_in_names_the_whitespace_that_reads_as_another() {
     }
 }
 
+/// The contract's whitespace, Unicode 14.0's `White_Space`, is the set the pinned toolchain's
+/// Unicode gives too, over every code point: a toolchain whose Unicode changes it fails here,
+/// the contract keeping its own set (`spec/box-contract.md`, section 4).
+#[test]
+fn holds_the_whitespace_of_unicode_14_as_the_toolchain_gives_it() {
+    let differ: Vec<char> = (0..=0x0010_ffff_u32)
+        .filter_map(char::from_u32)
+        .filter(|&character| super::white_space(character) != character.is_whitespace())
+        .collect();
+    assert_eq!(
+        differ,
+        Vec::<char>::new(),
+        "characters classified otherwise"
+    );
+}
+
 /// Every text of a description, each with the field that refuses it and whether it is a
 /// name: the box type's name and description text, then a port's and a parameter's.
 fn texts_in(value: &str) -> [(Option<DescriptionError>, Field, bool); 6] {

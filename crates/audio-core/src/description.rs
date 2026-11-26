@@ -47,7 +47,8 @@ pub enum TextKind {
 ///   ([`needs_escape`]); and in a name, one that shows nothing, so that
 ///   `gain` and `gain` followed by U+200B would read as one name: a default-ignorable code
 ///   point (Unicode's `Default_Ignorable_Code_Point`, as its version 14.0 lists it), U+2800,
-///   the braille pattern without a dot, or whitespace other than U+0020, which reads as one;
+///   the braille pattern without a dot, or whitespace other than U+0020 (`White_Space`, as
+///   Unicode 14.0 lists it), which reads as one;
 /// - [`Fault::Blank`], a text that shows nothing: empty, or whitespace, default-ignorable
 ///   code points and U+2800 alone;
 /// - [`Fault::Whitespace`], U+0020 in the name of a box type;
@@ -74,7 +75,27 @@ pub fn text_fault(text: &str, kind: TextKind) -> Option<Fault> {
 /// Whether `character` shows nothing: whitespace, a default-ignorable code point, or U+2800,
 /// the braille pattern without a dot.
 const fn shows_nothing(character: char) -> bool {
-    character.is_whitespace() || default_ignorable(character) || character == '\u{2800}'
+    white_space(character) || default_ignorable(character) || character == '\u{2800}'
+}
+
+/// Whether `character` is whitespace (Unicode 14.0's `PropList.txt`, `White_Space`): the set
+/// of the box contract, written here rather than taken from [`char::is_whitespace`], which
+/// follows the Unicode version of the toolchain that builds it.
+const fn white_space(character: char) -> bool {
+    matches!(
+        character,
+        '\u{9}'..='\u{d}'
+            | ' '
+            | '\u{85}'
+            | '\u{a0}'
+            | '\u{1680}'
+            | '\u{2000}'..='\u{200a}'
+            | '\u{2028}'
+            | '\u{2029}'
+            | '\u{202f}'
+            | '\u{205f}'
+            | '\u{3000}'
+    )
 }
 
 /// Whether `character` must not reach a terminal or a page as is.
