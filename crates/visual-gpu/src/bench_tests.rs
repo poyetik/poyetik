@@ -2479,6 +2479,8 @@ fn reads_the_cost_benchmarks_only_as_they_are_written() {
 /// hold it. Every other render or encoding takes 1 µs by its clock.
 #[derive(Debug)]
 struct Refusing {
+    /// Whether it has a clock its programs can read.
+    clock: bool,
     /// The call refused, from 0.
     fails: usize,
     /// Calls made so far.
@@ -2512,7 +2514,7 @@ impl Refusing {
 
 impl super::Measured for Refusing {
     fn has_clock(&self) -> bool {
-        true
+        self.clock
     }
 
     fn adapter(&self) -> &'static str {
@@ -2571,6 +2573,7 @@ fn stops_measuring_at_whichever_call_the_gpu_refuses() {
     };
     for fails in 0..calls {
         let gpu = Refusing {
+            clock: true,
             fails,
             calls: core::cell::Cell::new(0),
         };
@@ -2592,11 +2595,24 @@ fn stops_measuring_at_whichever_call_the_gpu_refuses() {
         assert_eq!(gpu.calls.get(), fails + 1, "call {fails}: stopped there");
     }
     let whole = Refusing {
+        clock: true,
         fails: calls,
         calls: core::cell::Cell::new(0),
     };
     assert!(measure(&whole).is_ok(), "no call refused: measured");
     assert_eq!(whole.calls.get(), calls, "every call made once");
+    // Without a clock: refused at once, before any call.
+    let untimed = Refusing {
+        clock: false,
+        fails: calls,
+        calls: core::cell::Cell::new(0),
+    };
+    assert_eq!(
+        measure(&untimed).map_err(|error| error.to_string()),
+        Err(super::NO_CLOCK.to_owned()),
+        "no clock"
+    );
+    assert_eq!(untimed.calls.get(), 0, "no clock: no call made");
 }
 
 #[test]
