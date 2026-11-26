@@ -89,7 +89,9 @@ function stepGroups(steps: readonly StepWithStatus[]): StepGroup[] {
     return groups;
   }
   const group = { block: null, heading: "Not in a block", done: loose.every((step) => step.done), steps: loose };
-  // The groups are not empty, so a step is in a block.
+  // A 1-based number against a 0-based index: at most it when the first loose step comes before the first step in a
+  // block (a form with no equivalent mutant, as indices compared by `<` would have); the groups are not empty, so a step
+  // is in a block.
   return first.number <= numbered.findIndex((step) => step.block !== undefined) ? [group, ...groups] : [...groups, group];
 }
 
