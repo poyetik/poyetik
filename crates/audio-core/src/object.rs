@@ -11,6 +11,7 @@ use core::ops::Deref;
 
 use crate::host::Raw as _;
 use crate::math::Constructor;
+use crate::output::silent_blocks;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate, flush};
 
 /// A capability a box needs from the host platform.
@@ -680,20 +681,19 @@ impl<const N: usize> DrivenValues<N> {
     /// frame within each: as [`ParamValues::within`] takes a value, the value if its
     /// parameter's range accepts it, else the parameter's default, each flushed. So that a
     /// caller trying values of every range (the box laws) drives a box with values of its
-    /// box type whatever it picks, with no error to handle.
+    /// box type whatever it picks, with no error to handle. Made on the heap, at any engine
+    /// block: an array of the largest would not fit a thread's stack.
     #[must_use]
     pub fn within(
         spec: &'static ObjectSpec,
         mut pick: impl FnMut(usize, &ParamSpec, usize) -> f64,
     ) -> Self {
-        let blocks = spec
-            .params
-            .iter()
-            .enumerate()
-            .map(|(index, param)| {
-                core::array::from_fn(|frame| param.kept(pick(index, param, frame)))
-            })
-            .collect();
+        let mut blocks = silent_blocks::<Binary64, N>(spec.params.len());
+        for (index, (block, param)) in blocks.iter_mut().zip(spec.params).enumerate() {
+            for (frame, value) in block.iter_mut().enumerate() {
+                *value = param.kept(pick(index, param, frame));
+            }
+        }
         Self { spec, blocks }
     }
 

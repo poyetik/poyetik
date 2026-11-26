@@ -766,6 +766,25 @@ fn drives_with_values_within_their_range_only_flushed_first() {
     );
 }
 
+/// On a test's thread, whose stack is smaller than one block of the largest engine block.
+#[test]
+fn drives_with_picked_values_at_the_largest_engine_block() {
+    const LAST: usize = crate::MAX_ENGINE_BLOCK - 1;
+    let driven =
+        DrivenValues::<{ crate::MAX_ENGINE_BLOCK }>::within(&TOLD, |_, _, frame| match frame {
+            0 => 2.0_f64,
+            LAST => 3.0_f64,
+            _ => 4.0_f64,
+        });
+    assert_eq!(
+        driven.blocks.first().map(|block| {
+            [block[0], block[1], block[LAST - 1], block[LAST]].map(|value| value.raw().to_bits())
+        }),
+        Some([2.0_f64, 4.0_f64, 4.0_f64, 3.0_f64].map(f64::to_bits)),
+        "frame by frame, to the last"
+    );
+}
+
 #[test]
 fn drives_with_each_value_picked_its_range_accepts_else_the_default() {
     // `a` accepts -1 to 2 (default 0.5), `b` 0 to 20,000 (default 440).
