@@ -1,6 +1,6 @@
 //! Tests of running the steps: the inputs each action reads and how its verdict is said.
 
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use core::num::NonZeroUsize;
 use core::time::Duration;
 use std::io;
@@ -2496,19 +2496,45 @@ fn stops_each_check_at_whichever_call_fails() {
     // The harness of `stops_each_gate_at_whichever_read_fails`, over each mode's whole check:
     // the actions no gate rule runs (the coverage, the mutation steps, the tree's state, the
     // reviews of unviable mutants) refuse a call broken too, and the check stops there.
+    // Each step is run after the one recording the tree, which the steps reading it need,
+    // so that each call is broken where that step makes it, not only in the first step that
+    // makes it, at the cost of each step's own calls rather than the whole check's.
     let mut unnamed = Vec::new();
-    for mode in [CHANGES_MODE, Mode::Full { jobs: FAKE_JOBS }] {
-        let steps = check_steps(mode);
+    for (mode, step) in [CHANGES_MODE, Mode::Full { jobs: FAKE_JOBS }]
+        .into_iter()
+        .flat_map(|mode| check_steps(mode).into_iter().map(move |step| (mode, step)))
+    {
+        let recorded = check_steps(mode)
+            .into_iter()
+            .find(|first| first.action == Action::TreeRecorded);
+        let steps: Vec<Step> = recorded
+            .filter(|first| first.action != step.action)
+            .into_iter()
+            .chain([step])
+            .collect();
         let mut whole = passing();
         assert_eq!(
             run_steps(&steps, &mut whole, &mut Vec::new()),
             Ok(()),
-            "{mode:?}"
+            "{mode:?}: {steps:?}"
         );
-        let calls: BTreeSet<String> = whole.ran.into_iter().collect();
-        for call in &calls {
+        // Each call as `broken` names it, with how many times the check makes it: each of
+        // them is broken in turn, so that a file read by two steps fails in the second too.
+        let mut calls: BTreeMap<String, usize> = BTreeMap::new();
+        for call in whole.ran {
+            let key = call
+                .strip_prefix("capture ")
+                .map_or_else(|| call.clone(), str::to_owned);
+            let made = calls.entry(key).or_default();
+            *made = made.saturating_add(1);
+        }
+        for (call, spared) in calls
+            .iter()
+            .flat_map(|(call, made)| (0..*made).map(move |spared| (call, spared)))
+        {
             let mut fake = passing();
-            fake.broken = Some(call.strip_prefix("capture ").unwrap_or(call).to_owned());
+            fake.broken = Some(call.clone());
+            fake.spared = spared;
             let mut out = Vec::new();
             let failed = run_steps(&steps, &mut fake, &mut out).map_err(|failure| failure.summary);
             // Either the check fails, or it goes on and says so: an optional step (a proof
@@ -2532,11 +2558,11 @@ fn stops_each_check_at_whichever_call_fails() {
                     bases.split_last().is_some_and(|(_, before)| {
                         before
                             .iter()
-                            .any(|base| call == &format!("capture git merge-base HEAD {base}"))
+                            .any(|base| call == &format!("git merge-base HEAD {base}"))
                     })
                 });
             if !said.contains(last) && !tried {
-                unnamed.push(format!("{mode:?} | {call}"));
+                unnamed.push(format!("{mode:?} | {call} | after {spared}"));
             }
         }
     }

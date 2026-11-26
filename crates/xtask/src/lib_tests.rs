@@ -831,6 +831,9 @@ pub(crate) struct Fake {
     /// A command that exits with code 2, as a usage error.
     pub(crate) refuse: Option<String>,
     pub(crate) broken: Option<String>,
+    /// How many of the calls `broken` names are answered before it breaks one: 0 breaks
+    /// the first, and so each one after.
+    pub(crate) spared: usize,
     pub(crate) killed: Option<String>,
     /// A command that, when it runs, rewrites a file: (command, file, new text).
     pub(crate) rewrite: Option<(String, String, String)>,
@@ -845,6 +848,21 @@ pub(crate) struct Fake {
 /// long, and a run of `n` steps `n` times as long.
 const FAKE_TICK: Duration = Duration::from_millis(1_500);
 
+impl Fake {
+    /// Whether the call `line` is broken: named by `broken`, once `spared` such calls were
+    /// answered.
+    fn breaks(&mut self, line: &str) -> bool {
+        if self.broken.as_deref() != Some(line) {
+            return false;
+        }
+        let Some(left) = self.spared.checked_sub(1) else {
+            return true;
+        };
+        self.spared = left;
+        false
+    }
+}
+
 impl Runner for Fake {
     fn run(&mut self, cmd: &Cmd) -> Result<(), CommandFailure> {
         let line = cmd.line();
@@ -854,7 +872,7 @@ impl Runner for Fake {
         {
             let _previous = self.files.insert(file.clone(), text.clone());
         }
-        let failed = if self.broken.as_deref() == Some(line.as_str()) {
+        let failed = if self.breaks(line.as_str()) {
             Failed::NotStarted("not found".to_owned())
         } else if self.killed.as_deref() == Some(line.as_str()) {
             Failed::Ended {
@@ -920,7 +938,7 @@ impl Runner for Fake {
     /// `read <path>`, or as denied when the fake holds a file `denies <path>`.
     fn read(&mut self, path: &str) -> io::Result<String> {
         self.ran.push(format!("read {path}"));
-        if self.broken.as_deref() == Some(format!("read {path}").as_str()) {
+        if self.breaks(&format!("read {path}")) {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "not UTF-8"));
         }
         if self.files.contains_key(&format!("denies {path}")) {
@@ -936,7 +954,7 @@ impl Runner for Fake {
     fn write(&mut self, path: &str, text: &str) -> io::Result<()> {
         let line = format!("write {path}");
         self.ran.push(line.clone());
-        if self.broken.as_deref() == Some(line.as_str()) {
+        if self.breaks(line.as_str()) {
             return Err(io::Error::other("read-only"));
         }
         let _previous = self.files.insert(path.to_owned(), text.to_owned());
@@ -960,7 +978,7 @@ impl Runner for Fake {
     fn fresh_dir(&mut self, path: &str) -> io::Result<()> {
         let line = format!("fresh {path}");
         self.ran.push(line.clone());
-        if self.broken.as_deref() == Some(line.as_str()) {
+        if self.breaks(line.as_str()) {
             return Err(io::Error::other("busy"));
         }
         Ok(())
@@ -972,7 +990,7 @@ impl Runner for Fake {
     fn capture(&mut self, cmd: &Cmd) -> Result<String, CommandFailure> {
         let line = cmd.line();
         self.ran.push(format!("capture {line}"));
-        if self.broken.as_deref() == Some(line.as_str()) {
+        if self.breaks(line.as_str()) {
             return Err(CommandFailure::of(
                 cmd,
                 Failed::NotStarted("not found".to_owned()),
@@ -1029,7 +1047,7 @@ impl Runner for Fake {
     fn tracked(&mut self, patterns: &[&str]) -> Result<Vec<String>, CommandFailure> {
         let line = format!("list {}", patterns.join(" "));
         self.ran.push(line.clone());
-        if self.broken.as_deref() == Some(line.as_str()) {
+        if self.breaks(line.as_str()) {
             return Err(CommandFailure {
                 line: format!("git ls-files -- {}", patterns.join(" ")),
                 failed: Failed::Ended {
