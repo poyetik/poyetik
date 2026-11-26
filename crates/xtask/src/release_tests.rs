@@ -756,6 +756,22 @@ fn searches_the_breaking_names_against_main() {
         Ok(()),
         "a name the merge base holds"
     );
+    let citing = || {
+        let mut cited = passing();
+        let _changelog = cited.files.insert(
+            CHANGELOG.to_owned(),
+            LOG.replace("- x\n", "- **Breaking:** `Gone` and `Kept` changed.\n"),
+        );
+        let _searched = cited
+            .files
+            .insert(search.to_owned(), "Changelog\nKept\n".to_owned());
+        cited
+    };
+    assert_eq!(
+        crate::tests::unrefused("the names the changelog cites", &step, &citing),
+        Vec::<String>::new(),
+        "each broken call refused or said"
+    );
     // Finding H11-1 of the fifth deep review of visual block 2 (#34): the title's word was
     // searched but never asserted found, so `Binary file … matches`, a line of no name,
     // read as every name lacking.

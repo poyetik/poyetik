@@ -4230,4 +4230,55 @@ fn stops_selecting_the_native_parts_at_whichever_call_fails() {
         Vec::<String>::new(),
         "each broken call refused or said"
     );
+    // Metadata whose crate lists a dependency without a name: the selection refuses it.
+    let mut unnamed_dependency = crate::tests::native_fake(&["README.md"]);
+    let _metadata = unnamed_dependency.files.insert(
+        format!(
+            "capture {}",
+            crate::metadata_command(crate::CargoWorkspace::Root).line()
+        ),
+        r#"{"workspace_root":"/r","packages":[{"name":"audio-core","dependencies":[{}]}]}"#
+            .to_owned(),
+    );
+    assert_eq!(
+        native_said(&mut unnamed_dependency).0,
+        Err("cargo metadata lists a dependency without a name".to_owned()),
+        "a dependency without a name"
+    );
+}
+
+#[test]
+fn stops_each_widened_mutation_at_whichever_call_fails() {
+    // The harness of the whole checks over the changes that widen the mutation: a unit test
+    // no source declares, and a shared input.
+    let changed = |paths: &[&str]| {
+        let mut fake = passing();
+        let _changes = fake.files.insert(
+            format!("capture {}", CHANGES.0),
+            paths.iter().map(|path| one_line_change(path)).collect(),
+        );
+        for path in [
+            "crates/audio-core/src/lib.rs",
+            "crates/audio-core/src/orphan_tests.rs",
+        ] {
+            let _source = fake.files.insert(path.to_owned(), "fn a() {}\n".to_owned());
+        }
+        fake
+    };
+    // A unit test no source declares: its crate is mutated whole, and said so.
+    let orphan = || changed(&["crates/audio-core/src/orphan_tests.rs"]);
+    // A shared input changed: every Rust mutant, and said so.
+    let shared = || changed(&["rust-toolchain.toml"]);
+    let mutation = rust_mutation_of_changes();
+    let mut unnamed = crate::tests::unrefused("a unit test no source declares", &mutation, &orphan);
+    unnamed.extend(crate::tests::unrefused(
+        "a shared input changed",
+        &mutation,
+        &shared,
+    ));
+    assert_eq!(
+        unnamed,
+        Vec::<String>::new(),
+        "each broken call refused or said"
+    );
 }
