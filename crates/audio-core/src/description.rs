@@ -250,7 +250,10 @@ pub struct Description<'bytes> {
 }
 
 impl<'bytes> Description<'bytes> {
-    /// Reads the description `bytes` hold, all of them.
+    /// Reads the description `bytes` hold, all of them, as [`crate::host::CONTRACT_VERSION`] writes
+    /// it: that of a module whose version ([`crate::host::Header::version`]) is accepted, by
+    /// [`crate::host::ContractVersion::check`]. Reading by a module's own version comes with the
+    /// first minor version that adds a kind of port (roadmap #12 step 19).
     ///
     /// # Errors
     ///
