@@ -22,14 +22,11 @@ const { view } = Astro.props;
 <div class="board">
   {
     view.columns.map((column) => {
-      // One card, collapsed to its title on one line (an In progress card adds its progress,
-      // so that the work under way is seen without a click); opened, its description, steps
-      // and footer. Defined once, rendered for the cards always shown and for those behind
-      // "Show all".
+      // Astro drops the whitespace between the elements of a callback's markup, so an element
+      // read after another (a tag after a title, a milestone after a number) is preceded by an
+      // explicit space, without which their texts run together ("InstallDone", "#1M1").
       // One step, numbered as the CLI's step commands number it: a block's list holds steps
-      // that are not always consecutive, so each item carries its number. Astro drops the
-      // whitespace between the elements of a callback's markup, so a tag is preceded by an
-      // explicit space, without which its text runs into the title ("InstallDone").
+      // that are not always consecutive, so each item carries its number.
       const stepItem = (step: StepWithStatus, number: number) => (
         <li class="step" value={number} data-status={step.status}>
           <span class="step-title">{step.title}</span>
@@ -37,6 +34,10 @@ const { view } = Astro.props;
           {step.status === "doing" && [" ", <span class="tag tag-doing">In progress</span>]}
         </li>
       );
+      // One card, collapsed to its title on one line (an In progress card adds its progress,
+      // so that the work under way is seen without a click); opened, its description, steps
+      // and footer. Defined once, rendered for the cards always shown and for those behind
+      // "Show all".
       const cardItem = (card: CardView) => (
         <li class="card" data-id={card.id}>
           <details class="card-toggle">
@@ -80,7 +81,7 @@ const { view } = Astro.props;
             )}
             <footer>
               <span class="id">{formatId(card.id)}</span>
-              {card.milestone !== "" && <span class="milestone">{card.milestone}</span>}
+              {card.milestone !== "" && [" ", <span class="milestone">{card.milestone}</span>]}
             </footer>
           </details>
         </li>

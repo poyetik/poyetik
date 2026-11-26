@@ -147,6 +147,9 @@ describe("Board.astro", () => {
       expect(html).toContain(title);
     }
     expect(html).toMatch(/data-id="1"[\s\S]*Card 1[\s\S]*The core[\s\S]*#1[\s\S]*M1/);
+    // A space between the number and the milestone, so that the footer reads "#1 M1", never "#1M1".
+    const footers = [...html.matchAll(/<footer[^>]*>([\s\S]*?)<\/footer>/g)].map(([, inner = ""]) => inner.replace(/<[^>]+>/g, ""));
+    expect(footers).toStrictEqual(["#3", "#1 M1", "#2"]);
     expect(html).toContain('data-column="later"');
     expect(html).toContain("Nothing yet");
   });
