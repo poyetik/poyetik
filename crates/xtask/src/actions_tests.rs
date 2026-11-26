@@ -2592,3 +2592,46 @@ fn stops_each_check_at_whichever_call_fails() {
         "each broken call refused or said"
     );
 }
+
+#[test]
+fn stops_each_gate_at_whichever_file_it_lists_cannot_be_read() {
+    // The passing fake lists no specification and no TypeScript test: with one of each, the
+    // gate of the names reviews cite reads them, and refuses each read broken.
+    let listing = || {
+        let mut fake = passing();
+        let _spec = fake
+            .files
+            .insert("spec/a.md".to_owned(), "# A\n".to_owned());
+        let _test = fake
+            .files
+            .insert("apps/roadmap/test/a.test.ts".to_owned(), String::new());
+        fake
+    };
+    let names = [Step {
+        name: "Names".to_owned(),
+        action: Action::UnviableNamesGate,
+    }];
+    assert_eq!(
+        unrefused("the names", &names, &listing),
+        Vec::<String>::new(),
+        "each read refused"
+    );
+    // A source of the math layer that does not lex is refused, not read as no code.
+    let mut unlexed = passing();
+    let _source = unlexed.files.insert(
+        "crates/audio-core/src/math.rs".to_owned(),
+        "\"open\n".to_owned(),
+    );
+    let layer = [Step {
+        name: "p".to_owned(),
+        action: Action::MathLayerGate,
+    }];
+    assert_eq!(
+        run_steps(&layer, &mut unlexed, &mut Vec::new()),
+        failed(
+            "p: crates/audio-core/src/math.rs:1: does not lex as Rust (cannot parse string into \
+             token stream): the gates read the tokens of every Rust source"
+        ),
+        "an unlexed source"
+    );
+}

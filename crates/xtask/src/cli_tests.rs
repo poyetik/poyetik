@@ -2548,3 +2548,41 @@ fn fails_the_native_check_at_its_first_failing_step() {
         "said"
     );
 }
+
+#[test]
+fn stops_each_command_at_whichever_call_fails() {
+    // The harness of the whole checks, over the steps of `cargo xtask mutants` (a crate, a
+    // file, the GPU workspace's crate, a TypeScript package) and of `cargo xtask bless`, its
+    // child writing on both streams.
+    let jobs = crate::tests::FAKE_JOBS;
+    let mut unnamed = Vec::new();
+    for target in [
+        "audio-core",
+        "crates/audio-core/src/math.rs",
+        "visual-gpu",
+        "apps/roadmap",
+    ] {
+        let steps = crate::mutants_steps(&crate::mutation_target(target).expect("a target"), jobs);
+        unnamed.extend(crate::tests::unrefused(target, &steps, &passing));
+    }
+    let bless = [bless_step(&[])];
+    let writing = || {
+        let mut fake = blessing();
+        drop(fake.files.insert(RECORD_AT_BASE.to_owned(), String::new()));
+        drop(
+            fake.files
+                .insert(format!("stdout {BLESS_RAN}"), "CHANGED a\n".to_owned()),
+        );
+        drop(
+            fake.files
+                .insert(format!("stderr {BLESS_RAN}"), "1 changed\n".to_owned()),
+        );
+        fake
+    };
+    unnamed.extend(crate::tests::unrefused("bless", &bless, &writing));
+    assert_eq!(
+        unnamed,
+        Vec::<String>::new(),
+        "each broken call refused or said"
+    );
+}
