@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking (`audio-testkit`)**: `check_metadata` is `check_description`, the word of the box contract for what a box type says of itself (`spec/box-contract.md`, section 4); it refuses in a box type's names and description texts the characters a module's description refuses (`audio_core::host::text_fault`), naming the text, escaped, and the code point, and takes a text of whitespace and default-ignorable code points alone as missing.
 - Spectral processing runs on spectral cables (`spec/engine-design.md`, decision 27): a port kind carrying spectral frames, with two adapter boxes between a signal and its spectrum, cables of another size, hop, window or rate refused when the plan is built, the signal of a spectrum adding its window less one frame and less the zeros that lead its synthesis window (#12 step 42, after latency compensation); subpatch blocks lose their overlap factor (decision 2).
 
+### Fixed
+
+- `breaking_names_gate` reads no name in the tag of a breaking entry (`**Breaking (<part>)`): a part, whose name every version holds, passed the gate whatever the entry broke.
+
 ## [0.12.0] - 2026-11-27
 
 ### Added

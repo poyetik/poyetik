@@ -292,9 +292,19 @@ pub(crate) fn breaking_entries(changelog: &str) -> Vec<(usize, Vec<String>)> {
 
 /// The names `entry` cites: of each code span, the last identifier before any `<` or `(`
 /// (`audio_wasm::Engine` names `Engine`, `Block<S, N>` names `Block`, a span with no
-/// identifier, a number, none).
+/// identifier, a number, none), the part a breaking entry is tagged with apart ([`untagged`]).
 fn cited_names(entry: &str) -> Vec<String> {
-    names(spans(entry))
+    names(spans(untagged(entry)))
+}
+
+/// `entry` after the part it is tagged with, if it opens as a breaking entry so tagged
+/// (`**Breaking (<part>)`), else whole: the part says where the break is, and its name, a
+/// word of every version, is none of what breaks.
+fn untagged(entry: &str) -> &str {
+    entry
+        .strip_prefix("**Breaking (")
+        .and_then(|tagged| tagged.split_once(')'))
+        .map_or(entry, |(_, rest)| rest)
 }
 
 /// The names `spans`, code spans, cite ([`cited_names`]).

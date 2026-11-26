@@ -605,6 +605,20 @@ fn refuses_a_breaking_entry_citing_nothing_the_last_version_has() {
         )),
         "a name only this branch added"
     );
+    for tagged in [
+        "**Breaking (`audio-Engine`)**: `audio_host::Host` changed",
+        "**Breaking (`audio-Engine`):** `audio_host::Host` changed",
+        "**Breaking (`Engine` command line):** `audio_host::Host` changed",
+    ] {
+        assert_eq!(
+            crate::breaking_names_gate(&unreleased_with(&format!("- {tagged}.\n")), &held, at),
+            failed(format!(
+                "the breaking entries of the changelog: {}",
+                refused(5, "Host")
+            )),
+            "{tagged}: the part an entry is tagged with is no name it changes"
+        );
+    }
     assert_eq!(
         crate::breaking_names_gate(
             &unreleased_with(
