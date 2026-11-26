@@ -397,6 +397,16 @@ fn runs_a_real_command_for_its_stdout_and_its_stderr() {
         ),
         "stdout that is not text"
     );
+    let failed = "printf '\\377'; echo 'error: why' >&2; exit 4";
+    assert_eq!(
+        shown(runner.run_for_stdout(&Cmd::new("sh", &["-c", failed], Dir::Root))),
+        (
+            "\u{fffd}".to_owned(),
+            "error: why\n".to_owned(),
+            Err(format!("`sh -c {failed}` exited with code 4: error: why"))
+        ),
+        "a failure that wrote output that is not text: its exit, its stdout replaced"
+    );
 }
 
 #[test]

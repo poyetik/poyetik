@@ -2502,6 +2502,36 @@ fn refuses_a_doc_codes_fixture_that_did_not_start() {
 }
 
 #[test]
+fn refuses_a_doc_codes_fixture_stopped_or_not_text_whatever_it_said() {
+    // Its output still says the code in both: a fixture stopped by a signal, or one that
+    // succeeded writing output that is not text, is no rustdoc failing for that code.
+    let fixture = crate::doc_codes_fixture_command().line();
+    let refused = |why: &str| {
+        Err(format!(
+            "the doc tests of crates/xtask/tests/fixtures/doc-codes failed for another reason \
+             than its error code: `{fixture}` {why}"
+        ))
+    };
+    let mut stopped = passing();
+    stopped.killed = Some(fixture.clone());
+    assert_eq!(
+        crate::actions::doc_tests(&mut stopped).map_err(|failure| failure.summary),
+        refused("was stopped by signal 9 (SIGKILL)"),
+        "stopped"
+    );
+    let mut not_text = passing();
+    let _failed = not_text.files.remove(&format!("fails {fixture}"));
+    let _previous = not_text
+        .files
+        .insert(format!("not text {fixture}"), String::new());
+    assert_eq!(
+        crate::actions::doc_tests(&mut not_text).map_err(|failure| failure.summary),
+        refused("wrote output that is not UTF-8 text"),
+        "not text"
+    );
+}
+
+#[test]
 fn needs_prlimit_on_linux_only_whatever_machine_runs_the_tests() {
     // The host is the environment's: the same broken prlimit refused on Linux, accepted on a
     // Mac, on any machine.

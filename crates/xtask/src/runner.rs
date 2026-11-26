@@ -193,7 +193,9 @@ pub trait Runner {
     /// whether it succeeded or not, and how it ended, the reason it wrote on stderr
     /// included ([`Ran`]). Both are read whole once it ends, so that a caller can show them
     /// in the order the command wrote its result and its summary: nothing shows while it
-    /// runs.
+    /// runs. Output that is not UTF-8 text fails a command that succeeded
+    /// ([`Failed::NotText`]); one that failed keeps its exit, its bytes out of UTF-8
+    /// replaced.
     fn run_for_stdout(&mut self, cmd: &Cmd) -> Ran;
 
     /// Writes `text` to a file below the repository root, creating its directory if needed.
@@ -648,23 +650,22 @@ impl Runner for SystemRunner {
             }
         };
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-        let Ok(stdout) = String::from_utf8(output.stdout) else {
-            return Ran {
-                stdout: String::new(),
-                stderr,
-                ended: Err(CommandFailure::of(cmd, Failed::NotText)),
-            };
-        };
-        let ended = if output.status.success() {
-            Ok(())
+        // A command that failed is a failure of its exit whatever it wrote: its stdout is
+        // kept, its bytes out of UTF-8 replaced, as its stderr's are.
+        let (stdout, ended) = if output.status.success() {
+            String::from_utf8(output.stdout).map_or_else(
+                |_| (String::new(), Err(CommandFailure::of(cmd, Failed::NotText))),
+                |stdout| (stdout, Ok(())),
+            )
         } else {
-            Err(CommandFailure::of(
-                cmd,
-                Failed::Ended {
-                    exit: exit_of(output.status),
-                    reason: error_reason(&output.stderr),
-                },
-            ))
+            let failed = Failed::Ended {
+                exit: exit_of(output.status),
+                reason: error_reason(&output.stderr),
+            };
+            (
+                String::from_utf8_lossy(&output.stdout).into_owned(),
+                Err(CommandFailure::of(cmd, failed)),
+            )
         };
         Ran {
             stdout,

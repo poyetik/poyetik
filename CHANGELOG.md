@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- `cargo xtask check` (its `doc_tests` step) took the fixture `crates/xtask/tests/fixtures/doc-codes`'s failure as its pass whenever its output held the expected error code, a command that never started included; it now needs the fixture to have run and ended, saying the code.
+- `cargo xtask check` (its step "Rust doc tests, the error code of each compile_fail checked") took the fixture `crates/xtask/tests/fixtures/doc-codes`'s failure as its pass whenever its output held the expected error code, a command that never started or was stopped by a signal included; it now needs the fixture to have run and exited with a code, saying it. A command whose output is its result and that fails while writing bytes out of UTF-8 is now reported by its exit, its output kept with those bytes replaced, no longer as a command that wrote no text.
 
 ### Changed
 

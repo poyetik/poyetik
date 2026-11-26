@@ -1144,8 +1144,9 @@ pub(crate) fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// `compile_fail` names ([`UNCHECKED_CODE`]), then those of the workspace, the codes checked
 /// alike ([`doc_tests_command`]).
 ///
-/// The fixture fails as it must only when it ran and ended unsuccessfully, saying the code:
-/// one that did not start, or wrote no text, is a failure for another reason.
+/// The fixture fails as it must only when it ran and exited with a code, saying it: one that
+/// did not start, was stopped by a signal, or succeeded writing output that is not text, is
+/// a failure for another reason.
 ///
 /// When the fixture does not fail as it must, the failure carries what rustdoc wrote, its
 /// output then its error output, one line each: the cause (`error[E…]`, the codes it
@@ -1154,10 +1155,14 @@ pub(crate) fn doc_tests(runner: &mut dyn Runner) -> Result<(), Failure> {
     let fixture = runner.run_for_stdout(&doc_codes_fixture_command());
     let said = |text: &str| text.contains(UNCHECKED_CODE);
     let summary = match fixture.ended {
-        // Its failure is its pass only when it ran and ended, saying the code: a command that
-        // did not start (or wrote no text) says nothing of rustdoc, whatever its output holds.
+        // Its failure is its pass only when it ran and exited, saying the code: a command that
+        // did not start, or was stopped, says nothing of rustdoc, whatever its output holds.
         Err(CommandFailure {
-            failed: Failed::Ended { .. },
+            failed:
+                Failed::Ended {
+                    exit: Exit::Code(_),
+                    ..
+                },
             ..
         }) if said(&fixture.stdout) || said(&fixture.stderr) => None,
         Err(failure) => Some(format!(

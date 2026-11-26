@@ -906,10 +906,17 @@ impl Runner for Fake {
 
     /// Runs `cmd` as [`Runner::run`] does, its stdout the file named `stdout <command
     /// line>` and its stderr the file `stderr <command line>`, or nothing; a command that
-    /// ends with a code gives the reason its stderr holds, as a real one does.
+    /// ends with a code gives the reason its stderr holds, as a real one does, and one that
+    /// succeeds is refused as not text when the fake holds a file `not text <command line>`.
     fn run_for_stdout(&mut self, cmd: &Cmd) -> Ran {
         let line = cmd.line();
-        let ended = self.run(cmd);
+        let ended = self.run(cmd).and_then(|()| {
+            if self.files.contains_key(&format!("not text {line}")) {
+                Err(CommandFailure::of(cmd, Failed::NotText))
+            } else {
+                Ok(())
+            }
+        });
         let read = |stream: &str| {
             self.files
                 .get(&format!("{stream} {line}"))
