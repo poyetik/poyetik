@@ -957,6 +957,16 @@ fn rejects_invalid_descriptions() {
         );
     }
     assert_eq!(check_description(&GOOD), Ok(()), "a valid description");
+    // A capability asked for once is accepted: only the second asking of one is refused.
+    let output = ObjectSpec::new::<Good, 1>(
+        "gain~",
+        GAIN_DESCRIPTION,
+        &[PORT],
+        &[OUT],
+        &[Capability::AudioOutput],
+        AlgorithmVersion::FIRST,
+    );
+    assert_eq!(check_description(&output), Ok(()), "one capability");
 }
 
 #[test]
