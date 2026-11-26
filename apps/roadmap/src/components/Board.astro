@@ -55,6 +55,7 @@ const { view } = Astro.props;
                   Steps {card.doneSteps}/{card.steps.length}
                   {card.currentStep !== null && <span class="current"> · {card.currentStep}</span>}
                 </summary>
+                {card.groups.length > 0 && <p class="block-end">Each block ends with {BLOCK_END}.</p>}
                 {card.groups.length === 0 ? (
                   <ol class="steps" aria-label="Steps">
                     {card.steps.map((step, i) => stepItem(step, i + 1))}
@@ -71,7 +72,6 @@ const { view } = Astro.props;
                           {group.done && [" ", <span class="tag tag-done">Done</span>]}
                         </h4>
                         <ol class="steps" aria-labelledby={heading}>{group.steps.map((step) => stepItem(step, step.number))}</ol>
-                        {group.block !== null && <p class="block-end">Ends with {BLOCK_END}.</p>}
                       </div>
                     );
                   })

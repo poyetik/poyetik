@@ -104,7 +104,7 @@ test("names a card by its title alone, its marker apart, closed and open, and it
   await expect(doing.getByRole("list", { name: "Steps" })).toBeVisible();
 });
 
-test("groups a card's steps by review block, each list named by its heading, each block ending with its review", async ({ page }) => {
+test("groups a card's steps by review block, each list named by its heading, and says once what ends a block", async ({ page }) => {
   await openFixture(page);
   const card = page.locator(`[data-column="doing"] [data-id="10"]`);
   await card.locator("details.card-toggle > summary").click();
@@ -119,9 +119,7 @@ test("groups a card's steps by review block, each list named by its heading, eac
     await expect(card.getByRole("list", { name, exact: true }).getByRole("listitem")).toHaveText(steps);
   }
   expect(await card.locator(".steps .step").evaluateAll((items) => items.map((item) => item.getAttribute("value")))).toStrictEqual(["1", "3", "2", "4"]);
-  const end = "Ends with a deep review, its decided fixes, and a pull request whose full check is green.";
-  await expect(card.locator(".block-end")).toHaveText([end, end]);
-  await expect(card.locator('[data-block="none"] .block-end')).toHaveCount(0);
+  await expect(card.locator(".block-end")).toHaveText(["Each block ends with a deep review, its decided fixes, and a pull request whose full check is green."]);
   // No landmark per block: the page keeps its regions.
   await expect(card.getByRole("region")).toHaveCount(0);
   expect((await new AxeBuilder({ page }).analyze()).violations).toStrictEqual([]);

@@ -90,7 +90,7 @@ describe("Board.astro", () => {
     expect(html).not.toContain('class="block"');
   });
 
-  it("groups steps by review block, each with its heading, its end and its derived state, then the steps in no block", async () => {
+  it("groups steps by review block, each with its heading and its derived state, says once what ends a block, then the steps in no block", async () => {
     const html = await render([
       card(1, "doing", {
         steps: [
@@ -112,10 +112,10 @@ describe("Board.astro", () => {
     const [first = "", second = "", loose = ""] = blocks.map(([whole = ""]) => whole);
     const text = (inner: string): string => inner.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
     expect(text(first)).toBe(
-      "Block 1: steps 1 and 3 Done Install Done Test Done Ends with a deep review, its decided fixes, and a pull request whose full check is green.",
+"Block 1: steps 1 and 3 Done Install Done Test Done",
     );
     expect(text(second)).toBe(
-      "Block 2: step 2 Build In progress Ends with a deep review, its decided fixes, and a pull request whose full check is green.",
+"Block 2: step 2 Build In progress",
     );
     expect(text(loose)).toBe("Not in a block Ship");
     // A space between the heading and its tag, so that the list's name reads "… 3 Done", never "… 3Done".
@@ -123,7 +123,8 @@ describe("Board.astro", () => {
     expect([...first.matchAll(/<li class="step" value="(\d+)"/g)].map(([, number]) => number)).toStrictEqual(["1", "3"]);
     expect([...loose.matchAll(/<li class="step" value="(\d+)"/g)].map(([, number]) => number)).toStrictEqual(["4"]);
     expect(second).not.toContain("tag-done");
-    expect(loose).not.toContain("block-end");
+    // What ends a block, said once for the card, before its blocks.
+    expect([...html.matchAll(/<p class="block-end">([^<]*)<\/p>/g)].map(([, said]) => said)).toStrictEqual(["Each block ends with a deep review, its decided fixes, and a pull request whose full check is green."]);
     expect(html).not.toContain('aria-label="Steps"');
   });
 

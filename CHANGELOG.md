@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Review blocks on the roadmap: a step may name the block it belongs to (an optional `block` field of `board.json`, a safe integer of at least 1, format version 1 unchanged), set by `pnpm roadmap step block <id> <n> <block|none>`; the step in progress is the first not done of the lowest open block (`currentStepIndex`); `show` prints each step's block and each block's steps and end, and the page groups a card's steps by block, the steps in no block before the blocks when they begin the card, else after, each group with its heading, what ends it and whether it is done, all derived from the steps (`cardBlocks`, `formatSteps`, `BLOCK_END`); `pnpm roadmap validate` reports each run of block numbers below a card's highest that no step uses, in time bounded by the steps (`blockGaps`, `formatGap`).
+- Review blocks on the roadmap: a step may name the block it belongs to (an optional `block` field of `board.json`, a safe integer of at least 1, format version 1 unchanged), set by `pnpm roadmap step block <id> <n> <block|none>`; the step in progress is the first not done of the lowest open block (`currentStepIndex`); `show` prints each step's block and each block's steps, and the page groups a card's steps by block, the steps in no block before the blocks when they begin the card, else after, each group under its heading with whether it is done, both derived from the steps (`cardBlocks`, `blockLabel`, `formatSteps`), and each says once per card what ends a block (`BLOCK_END`); `pnpm roadmap validate` reports each run of block numbers below a card's highest that no step uses, in time bounded by the steps (`blockGaps`, `formatGap`).
 
 ### Fixed
 

@@ -6,6 +6,7 @@ import {
   addStep,
   BLOCK_END,
   blockGaps,
+  blockLabel,
   formatGap,
   cardBlocks,
   completeStep,
@@ -934,6 +935,11 @@ describe("review blocks", () => {
   it("finds no gap in the real board's blocks", () => {
     const real = parseBoard(JSON.parse(readFileSync(new URL("../board.json", import.meta.url), "utf8")));
     expect(real.cards.flatMap((found) => blockGaps(found).map((gap) => `${formatId(found.id)} ${formatGap(gap)}`))).toEqual([]);
+  });
+
+  it("labels a block by its number and its steps", () => {
+    expect(blockLabel({ block: 5, steps: [16, 17, 18, 39] })).toBe("Block 5: steps 16 to 18 and 39");
+    expect(blockLabel({ block: 1, steps: [2] })).toBe("Block 1: step 2");
   });
 
   it("states what ends a block", () => {

@@ -586,6 +586,11 @@ export function formatGap(gap: BlockGap): string {
   return `blocks ${String(gap.from)} ${gap.to - gap.from === 1 ? "and" : "to"} ${String(gap.to)}`;
 }
 
+/** A review block's label, the page's heading and `show`'s line alike: "Block 5: steps 16 to 18 and 39". */
+export function blockLabel(block: Pick<CardBlock, "block" | "steps">): string {
+  return `Block ${String(block.block)}: ${formatSteps(block.steps)}`;
+}
+
 /**
  * Writes a list of step numbers as a reader says it, runs of three or more joined by "to":
  * `[4]` is "step 4", `[5, 6]` "steps 5 and 6", `[16, 17, 18, 39]` "steps 16 to 18 and 39".
@@ -607,7 +612,7 @@ export function formatSteps(numbers: readonly number[]): string {
   return `${numbers.length === 1 ? "step" : "steps"} ${list}`;
 }
 
-/** What ends every review block, shown after its steps: the review, its fixes and the green full check of its pull request. */
+/** What ends every review block, said once per card that has blocks: the review, its fixes and the green full check of its pull request. */
 export const BLOCK_END = "a deep review, its decided fixes, and a pull request whose full check is green";
 
 /** Removes step `stepNumber` (1-based) of a card. */

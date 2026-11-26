@@ -8,7 +8,7 @@ import {
   blockGaps,
   formatGap,
   cardBlocks,
-  formatSteps,
+  blockLabel,
   parseBlock,
   setStepBlock,
   completeStep,
@@ -165,9 +165,12 @@ function printCard(io: Io, card: Card): void {
     const block = step.block === undefined ? "" : `  (block ${String(step.block)})`;
     io.out(`  ${String(i + 1)}. ${step.title}${block}${TAGS[step.status]}`);
   });
-  for (const block of cardBlocks(card)) {
-    const done = block.done ? TAGS.done : "";
-    io.out(`  Block ${String(block.block)} (${formatSteps(block.steps)}) ends with ${BLOCK_END}${done}`);
+  const blocks = cardBlocks(card);
+  for (const block of blocks) {
+    io.out(`  ${blockLabel(block)}${block.done ? TAGS.done : ""}`);
+  }
+  if (blocks.length > 0) {
+    io.out(`  Each block ends with ${BLOCK_END}.`);
   }
 }
 

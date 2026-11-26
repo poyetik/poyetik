@@ -692,8 +692,9 @@ describe("step", () => {
       "  1. Install  (block 1)  [Done]",
       "  2. Build  (block 2)  [In progress]",
       "  3. Ship  (block 1)  [Done]",
-      "  Block 1 (steps 1 and 3) ends with a deep review, its decided fixes, and a pull request whose full check is green  [Done]",
-      "  Block 2 (step 2) ends with a deep review, its decided fixes, and a pull request whose full check is green",
+      "  Block 1: steps 1 and 3  [Done]",
+      "  Block 2: step 2",
+      "  Each block ends with a deep review, its decided fixes, and a pull request whose full check is green.",
       `created ${DAY}, updated ${DAY}`,
     ]);
     expect(run(["step", "undo", "1", "3"], cli.io)).toBe(0);
@@ -707,7 +708,8 @@ describe("step", () => {
       "  1. Install  (block 1)  [Done]",
       "  2. Build  [In progress]",
       "  3. Ship  (block 1)  [Done]",
-      "  Block 1 (steps 1 and 3) ends with a deep review, its decided fixes, and a pull request whose full check is green  [Done]",
+      "  Block 1: steps 1 and 3  [Done]",
+      "  Each block ends with a deep review, its decided fixes, and a pull request whose full check is green.",
     ]);
     expect(boardOf(cli).cards[0]?.steps[1]).toEqual({ title: "Build", done: false });
   });

@@ -1,4 +1,4 @@
-import { cardBlocks, COLUMNS, currentStepIndex, formatSteps, withStatus, type Board, type Card, type ColumnId, type StepWithStatus } from "./board.ts";
+import { blockLabel, cardBlocks, COLUMNS, currentStepIndex, withStatus, type Board, type Card, type ColumnId, type StepWithStatus } from "./board.ts";
 
 /** A step prepared for display, with its 1-based number in the card, which a block's list cannot count alone. */
 export interface NumberedStep extends StepWithStatus {
@@ -79,7 +79,7 @@ function stepGroups(steps: readonly StepWithStatus[]): StepGroup[] {
   }
   const groups: StepGroup[] = blocks.map((block) => ({
     block: block.block,
-    heading: `Block ${String(block.block)}: ${formatSteps(block.steps)}`,
+    heading: blockLabel(block),
     done: block.done,
     steps: numbered.filter((step) => step.block === block.block),
   }));
