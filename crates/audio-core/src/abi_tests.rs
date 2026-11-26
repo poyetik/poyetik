@@ -528,8 +528,24 @@ fn refuses_a_copy_that_is_not_the_runs_leaving_both_sides() {
     let run = BufferRun::<Binary64>::new(64, 2, 2, 192).expect("a run");
     let full = [Binary64::new(0.5); 3];
     for (index, frames, bytes, refusal) in [
-        (2, 2, 192, CopyError::NoBuffer { index: 2 }),
-        (u32::MAX, 2, 192, CopyError::NoBuffer { index: u32::MAX }),
+        (
+            2,
+            2,
+            192,
+            CopyError::NoBuffer {
+                index: 2,
+                buffers: 2,
+            },
+        ),
+        (
+            u32::MAX,
+            2,
+            192,
+            CopyError::NoBuffer {
+                index: u32::MAX,
+                buffers: 2,
+            },
+        ),
         (0, 0, 192, CopyError::Frames { given: 0, span: 2 }),
         (0, 3, 192, CopyError::Frames { given: 3, span: 2 }),
         (
@@ -574,8 +590,22 @@ fn tells_the_first_fault_of_a_copy_that_holds() {
     let run = BufferRun::<Binary64>::new(64, 2, 2, 192).expect("a run");
     let many = [Binary64::new(0.5); 3];
     for (index, frames, refusal) in [
-        (2, 3, CopyError::NoBuffer { index: 2 }),
-        (2, 0, CopyError::NoBuffer { index: 2 }),
+        (
+            2,
+            3,
+            CopyError::NoBuffer {
+                index: 2,
+                buffers: 2,
+            },
+        ),
+        (
+            2,
+            0,
+            CopyError::NoBuffer {
+                index: 2,
+                buffers: 2,
+            },
+        ),
         (1, 3, CopyError::Frames { given: 3, span: 2 }),
         (1, 0, CopyError::Frames { given: 0, span: 2 }),
     ] {
@@ -593,16 +623,19 @@ fn tells_the_first_fault_of_a_copy_that_holds() {
 fn says_why_a_copy_is_refused() {
     for (refusal, said) in [
         (
-            CopyError::NoBuffer { index: 2 },
-            "a run of buffers has no buffer 2",
+            CopyError::NoBuffer {
+                index: 5,
+                buffers: 3,
+            },
+            "a run of 3 buffers has no buffer 5",
         ),
         (
             CopyError::Frames { given: 3, span: 2 },
-            "a copy of 3 samples, outside 1 to the 2 frames of its run of buffers",
+            "a copy of 3 frames, outside 1 to the 2 frames of its run of buffers",
         ),
         (
             CopyError::ShorterMemory { bytes: 9, end: 128 },
-            "a memory of 9 bytes does not hold the buffer, which ends before byte 128",
+            "a buffer ends before byte 128, beyond a memory of 9 bytes",
         ),
     ] {
         assert_eq!(refusal.to_string(), said, "{refusal:?}");
@@ -696,7 +729,7 @@ fn says_why_a_header_is_refused() {
             memory: 12
         }
         .to_string(),
-        "the module's header, 8 bytes at byte 9, ends beyond a memory of 12 bytes",
+        "the module's header, 8 bytes at byte 9, ends before byte 17, beyond a memory of 12 bytes",
         "header"
     );
     assert_eq!(
@@ -706,7 +739,7 @@ fn says_why_a_header_is_refused() {
             memory: 27
         }
         .to_string(),
-        "the module's description, 4 bytes at byte 24, ends beyond a memory of 27 bytes",
+        "the module's description, 4 bytes at byte 24, ends before byte 28, beyond a memory of 27 bytes",
         "description"
     );
 }

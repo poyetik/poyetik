@@ -740,7 +740,7 @@ impl fmt::Display for Fault {
         let number = f64::from_bits;
         match *self {
             Self::Truncated => f.write_str("the bytes end inside it"),
-            Self::Trailing { bytes } => write!(f, "{bytes} bytes follow the last field"),
+            Self::Trailing { bytes } => write!(f, "{bytes} byte(s) follow the last field"),
             Self::Code(code) => write!(
                 f,
                 "{code} is none of its codes in this version of the box contract"
@@ -751,9 +751,9 @@ impl fmt::Display for Fault {
             ),
             Self::Zero => f.write_str("is 0, versions count from 1"),
             Self::TooLong { bytes } => {
-                write!(f, "{bytes} bytes, more than {DESCRIPTION_BYTES_MAX}")
+                write!(f, "holds {bytes} bytes, more than {DESCRIPTION_BYTES_MAX}")
             }
-            Self::TooMany { count } => write!(f, "{count} ports, more than {PORTS_MAX}"),
+            Self::TooMany { count } => write!(f, "holds {count} ports, more than {PORTS_MAX}"),
             Self::NotUtf8 => f.write_str("is not UTF-8"),
             Self::Blank => f.write_str("is blank"),
             Self::Character(character) => {

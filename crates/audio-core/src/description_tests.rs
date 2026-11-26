@@ -1024,7 +1024,7 @@ fn says_the_field_and_the_fault() {
         (
             Field::Whole,
             Fault::TooLong { bytes: 16_777_217 },
-            "description: 16777217 bytes, more than 16777216",
+            "description: holds 16777217 bytes, more than 16777216",
         ),
         (
             inlet(2, Part::Name),
@@ -1041,7 +1041,7 @@ fn says_the_field_and_the_fault() {
             Fault::TooMany {
                 count: 4_294_967_295,
             },
-            "inlets: 4294967295 ports, more than 65536",
+            "inlets: holds 4294967295 ports, more than 65536",
         ),
         (
             outlet(0, Part::Kind),
@@ -1071,7 +1071,7 @@ fn says_the_field_and_the_fault() {
         (
             Field::End,
             Fault::Trailing { bytes: 3 },
-            "end: 3 bytes follow the last field",
+            "end: 3 byte(s) follow the last field",
         ),
     ] {
         assert_eq!(

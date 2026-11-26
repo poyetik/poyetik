@@ -254,8 +254,9 @@ impl fmt::Display for HeaderError {
         match *self {
             Self::Header { offset, memory } => write!(
                 f,
-                "the module's header, {HEADER_BYTES} bytes at byte {offset}, ends beyond a \
-                 memory of {memory} bytes"
+                "the module's header, {HEADER_BYTES} bytes at byte {offset}, ends before byte \
+                 {}, beyond a memory of {memory} bytes",
+                u64::from(offset).saturating_add(HEADER_BYTES)
             ),
             Self::Description {
                 offset,
@@ -263,8 +264,9 @@ impl fmt::Display for HeaderError {
                 memory,
             } => write!(
                 f,
-                "the module's description, {length} bytes at byte {offset}, ends beyond a \
-                 memory of {memory} bytes"
+                "the module's description, {length} bytes at byte {offset}, ends before byte \
+                 {}, beyond a memory of {memory} bytes",
+                offset.saturating_add(u64::from(length))
             ),
         }
     }
@@ -369,7 +371,10 @@ impl<S: Sample> BufferRun<S> {
     /// the byte after its padding, and the bytes the samples take from its start.
     fn slot(self, index: u32, given: usize) -> Result<(usize, usize, usize), CopyError> {
         let Some(start) = self.start(index) else {
-            return Err(CopyError::NoBuffer { index });
+            return Err(CopyError::NoBuffer {
+                index,
+                buffers: self.buffers,
+            });
         };
         let Some(copied) = u32::try_from(given)
             .ok()
@@ -606,6 +611,8 @@ pub enum CopyError {
     NoBuffer {
         /// The buffer asked for.
         index: u32,
+        /// How many buffers the run has.
+        buffers: u32,
     },
     /// The samples given are none or more than the run's span.
     Frames {
@@ -627,14 +634,16 @@ pub enum CopyError {
 impl fmt::Display for CopyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Self::NoBuffer { index } => write!(f, "a run of buffers has no buffer {index}"),
+            Self::NoBuffer { index, buffers } => {
+                write!(f, "a run of {buffers} buffers has no buffer {index}")
+            }
             Self::Frames { given, span } => write!(
                 f,
-                "a copy of {given} samples, outside 1 to the {span} frames of its run of buffers"
+                "a copy of {given} frames, outside 1 to the {span} frames of its run of buffers"
             ),
             Self::ShorterMemory { bytes, end } => write!(
                 f,
-                "a memory of {bytes} bytes does not hold the buffer, which ends before byte {end}"
+                "a buffer ends before byte {end}, beyond a memory of {bytes} bytes"
             ),
         }
     }
