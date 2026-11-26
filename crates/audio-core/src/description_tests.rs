@@ -730,8 +730,8 @@ fn refuses_a_parameter_whose_range_or_default_no_value_meets() {
         ([0.0_f64, 0.0_f64, f64::NAN], not_finite(f64::NAN)),
         ([0.5_f64, 1e-40_f64, 1.0_f64], unreachable(1e-40_f64)),
         ([0.0_f64, -1.0_f64, 1e-310_f64], unreachable(1e-310_f64)),
-        // The minimum is told before the maximum, and the order before the bounds no value
-        // reaches.
+        // The minimum is told before the maximum, and the bounds no value reaches before the
+        // order.
         (
             [0.0_f64, f64::NEG_INFINITY, f64::NAN],
             not_finite(f64::NEG_INFINITY),
@@ -741,10 +741,7 @@ fn refuses_a_parameter_whose_range_or_default_no_value_meets() {
             not_finite(f64::INFINITY),
         ),
         ([0.0_f64, -1e-310_f64, 1e-310_f64], unreachable(-1e-310_f64)),
-        (
-            [0.0_f64, 1e-310_f64, -1.0_f64],
-            reversed(1e-310_f64, -1.0_f64),
-        ),
+        ([0.0_f64, 1e-310_f64, -1.0_f64], unreachable(1e-310_f64)),
         // Finite bounds, but no finite width: from the largest number, the width overflows from
         // half its last place, 2^970, on (a tie, to the even infinity).
         ([0.0_f64, -max, max], width(-max, max)),
@@ -911,7 +908,7 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
     // model of the rule counts them (decided from the bits, in Python's binary64).
     assert_eq!(
         verdicts,
-        [283, 1_392, 16, 437, 1_232, 736],
+        [283, 1_392, 16, 437, 560, 1_408],
         "accepted, not finite, width, default, reversed, unreachable"
     );
 }

@@ -475,7 +475,7 @@ fn takes_a_default_within_its_finite_range_only() {
 }
 
 #[test]
-fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
+fn takes_a_finite_range_in_order_of_reachable_bounds_only() {
     let below = SMALLEST.next_down();
     // A nonzero bound below 2^-126, which a plan would flush to zero: no value can reach it.
     for positive in [
@@ -494,6 +494,14 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
         ] {
             assert_eq!(
                 checked(maximum, minimum, maximum),
+                Err(ParamSpecError::Unreachable { name: "p" }),
+                "[{minimum:e}, {maximum:e}]"
+            );
+        }
+        // Before the order, which a host taking subnormal numbers as zeros would not see.
+        for (minimum, maximum) in [(1.0_f64, positive), (positive, negative)] {
+            assert_eq!(
+                checked(0.0_f64, minimum, maximum),
                 Err(ParamSpecError::Unreachable { name: "p" }),
                 "[{minimum:e}, {maximum:e}]"
             );
@@ -527,7 +535,8 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
     for (minimum, maximum) in [
         (1.0_f64, 1.0_f64.next_down()),
         (1.0_f64, -1.0_f64),
-        (1.0_f64, 1e-300_f64),
+        (f64::MAX, f64::MIN),
+        (1.0_f64, 0.0_f64),
     ] {
         assert_eq!(
             checked(1.0_f64, minimum, maximum),
@@ -535,6 +544,11 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
             "[{minimum}, {maximum}]"
         );
     }
+}
+
+/// A width is finite or refused at its exact edge, in the order of the rules.
+#[test]
+fn takes_a_range_of_finite_width_only() {
     // A finite range whose width, the maximum less the minimum, is beyond binary64: from
     // -2^1023 to 2^1023 (width 2^1024) the smallest, the whole of binary64 the largest.
     let half = f64::from_bits(0x7fe0_0000_0000_0000);
@@ -564,6 +578,34 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
         Ok([0, (-1.0_f64).to_bits(), f64::MAX.to_bits()]),
         "a width that rounds down to the largest finite binary64"
     );
+    // The largest binary64, an odd multiple of 2^971: 2^970 from zero is a tie again, and
+    // rounds to 2^1024, whatever is added below 2^970.
+    let tie = f64::from_bits(0x7c90_0000_0000_0000);
+    for (other, infinite) in [
+        (tie, true),
+        (tie.next_up(), true),
+        (tie.next_down(), false),
+        (SMALLEST, false),
+        (0.0_f64, false),
+    ] {
+        let (under, over) = (
+            checked(0.0_f64, -other, f64::MAX),
+            checked(0.0_f64, f64::MIN, other),
+        );
+        if infinite {
+            let refused = Err(ParamSpecError::InfiniteWidth { name: "p" });
+            assert_eq!((under, over), (refused, refused), "{other:e}");
+        } else {
+            assert_eq!(
+                (under, over),
+                (
+                    Ok([0, (-other).to_bits(), f64::MAX.to_bits()]),
+                    Ok([0, f64::MIN.to_bits(), other.to_bits()])
+                ),
+                "{other:e}"
+            );
+        }
+    }
     assert_eq!(
         checked(f64::NAN, f64::NAN, 1.0_f64),
         Err(ParamSpecError::NotFinite { name: "p" }),
@@ -574,6 +616,64 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_and_finite_width_only() {
         Err(ParamSpecError::InfiniteWidth { name: "p" }),
         "the width before the default"
     );
+}
+
+/// The width decided in integers is the subtraction of a host that rounds to nearest, as a
+/// test's does, over the edges of every step it takes and over drawn bounds.
+#[test]
+fn decides_the_width_as_the_subtraction_rounded_to_nearest() {
+    let mut bounds = vec![0.0_f64, SMALLEST, 1.0_f64, f64::MAX];
+    // Each exponent near the two shifts' ends and the halfway's, and the largest, with the
+    // edges of its significands.
+    for exponent in (1_988_u64..=1_998).chain(2_040..=2_046) {
+        for fraction in [
+            0,
+            1,
+            2,
+            0x7_ffff_ffff_ffff,
+            0x8_0000_0000_0000,
+            0xf_ffff_ffff_fffe,
+            0xf_ffff_ffff_ffff,
+        ] {
+            bounds.push(f64::from_bits((exponent << 52) | fraction));
+        }
+    }
+    let mut state = 1_u64;
+    for _ in 0_u8..200 {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1);
+        let drawn = f64::from_bits((2_044 + state % 3) << 52 | state >> 12);
+        bounds.push(drawn);
+    }
+    let mut counted = [0_u32; 2];
+    for &below in &bounds {
+        for &above in &bounds {
+            let infinite = !(above + below).is_finite();
+            let expected = if infinite {
+                Err(ParamSpecError::InfiniteWidth { name: "p" })
+            } else {
+                Ok([0, (-below).to_bits(), above.to_bits()])
+            };
+            assert_eq!(
+                checked(0.0_f64, -below, above),
+                expected,
+                "[-{below:e}, {above:e}]"
+            );
+            counted[usize::from(infinite)] += 1;
+        }
+    }
+    assert!(
+        counted.iter().all(|&count| count > 5_000),
+        "the control: both answers, {counted:?}"
+    );
+    // Bounds of one sign are never too far apart.
+    for &bound in &bounds {
+        assert!(
+            checked(bound, bound, f64::MAX).is_ok(),
+            "[{bound:e}, the largest]"
+        );
+    }
 }
 
 /// Each refusal's one text, whole: what `param!` fails to compile with and what the error

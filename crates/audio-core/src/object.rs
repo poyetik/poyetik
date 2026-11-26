@@ -97,13 +97,13 @@ impl ParamSpec {
     ///
     /// # Errors
     ///
-    /// Returns [`ParamSpecError::NotFinite`] unless `minimum` and `maximum` are finite,
+    /// Returns the first of these that holds: [`ParamSpecError::NotFinite`] unless `minimum`
+    /// and `maximum` are finite, [`ParamSpecError::Unreachable`] if either is below 2^-126 in
+    /// magnitude but not zero (a value there is a zero once flushed, so no value would reach
+    /// such a bound, and every comparison with the range is of numbers at least 2^-126 in
+    /// magnitude or zeros, which no floating-point mode of a host changes),
     /// [`ParamSpecError::Reversed`] unless `minimum` is at most `maximum`,
-    /// [`ParamSpecError::Unreachable`] if either is below 2^-126 in magnitude but not zero (a
-    /// value there is a zero once flushed, so no value would reach such a bound, and every
-    /// comparison with the range is of numbers at least 2^-126 in magnitude or zeros, which
-    /// no floating-point mode of a host changes), [`ParamSpecError::InfiniteWidth`] unless
-    /// the range's width, `maximum` less `minimum`, is finite (a ramp across the range
+    /// [`ParamSpecError::InfiniteWidth`] unless the range's width, `maximum` less `minimum`, is finite (a ramp across the range
     /// computes it), and [`ParamSpecError::DefaultOutsideRange`] unless `default_value`,
     /// flushed as a plan flushes it (below 2^-126 in magnitude, a zero of its sign), is
     /// within them, so that every parameter of every box type has a finite range holding its
@@ -185,12 +185,16 @@ pub(crate) enum RangeFault {
 }
 
 /// The one rule of a parameter's range, for every box type, built in ([`ParamSpec::new`])
-/// or described by a module (`spec/box-contract.md`): `minimum` and `maximum` finite, in
-/// order, neither below 2^-126 in magnitude but zero (no value reaches such a bound once
-/// flushed); the width, `maximum` less `minimum`, finite (a ramp across the range computes
+/// or described by a module (`spec/box-contract.md`): `minimum` and `maximum` finite, neither
+/// below 2^-126 in magnitude but zero (no value reaches such a bound once flushed), in
+/// order; the width, `maximum` less `minimum`, finite (a ramp across the range computes
 /// it); `default_value`, flushed as a plan flushes it, within them. Decided by the faults in
 /// that order (the minimum's before the maximum's), so that a range refused for two reasons
 /// names the first.
+///
+/// No floating-point mode of a host changes the answer: the bounds are compared once they
+/// are known to be zeros or at least 2^-126 in magnitude, which no mode flushes, and the
+/// width is decided in integers ([`infinite_width`]).
 pub(crate) const fn range_rule(
     default_value: f64,
     minimum: f64,
@@ -202,16 +206,16 @@ pub(crate) const fn range_rule(
     if !maximum.is_finite() {
         return Err(RangeFault::NotFinite(maximum));
     }
-    if minimum > maximum {
-        return Err(RangeFault::Reversed);
-    }
     if !reachable(minimum) {
         return Err(RangeFault::Unreachable(minimum));
     }
     if !reachable(maximum) {
         return Err(RangeFault::Unreachable(maximum));
     }
-    if !(maximum - minimum).is_finite() {
+    if minimum > maximum {
+        return Err(RangeFault::Reversed);
+    }
+    if infinite_width(minimum, maximum) {
         return Err(RangeFault::Width);
     }
     let flushed = flush::parameter(default_value);
@@ -219,6 +223,39 @@ pub(crate) const fn range_rule(
         Ok(())
     } else {
         Err(RangeFault::Default)
+    }
+}
+
+/// Whether the width of a finite range in order, `maximum` less `minimum`, is infinite in
+/// binary64 rounded to nearest, ties to even, whatever the rounding of the host.
+///
+/// It is exactly when the width is at least 2^1024 - 2^970, halfway from the largest binary64
+/// to 2^1024, whose tie goes to the even 2^1024. Only bounds of opposite signs reach it, one
+/// of them at least 2^1023 in magnitude, so a multiple of 2^971 ([`units`] holds it exactly);
+/// what is left to reach is then a multiple of 2^970, which the other reaches exactly when
+/// its whole units do.
+const fn infinite_width(minimum: f64, maximum: f64) -> bool {
+    minimum.is_sign_negative() != maximum.is_sign_negative()
+        && units(minimum).saturating_add(units(maximum)) >= HALFWAY
+}
+
+/// 2^1024 - 2^970 in units of 2^970 ([`units`]).
+const HALFWAY: u64 = (1 << 54) - 1;
+
+/// The whole units of 2^970 in the magnitude of `bound`, a finite binary64: below 2^54.
+///
+/// A normal number is its 53-bit significand times 2^(exponent - 1075), so its units are the
+/// significand shifted by exponent - 2045: left by 1 at the largest exponent, 2046, else
+/// right. A subnormal number, whose significand the leading bit added here misstates, is
+/// shifted out whole, as every number below 2^970.
+const fn units(bound: f64) -> u64 {
+    let bits = bound.to_bits();
+    let [high, low, ..] = bits.to_be_bytes();
+    let exponent = u32::from_be_bytes([0, 0, high & 0x7f, low]).wrapping_shr(4);
+    let significand = (bits & ((1 << 52) - 1)).saturating_add(1 << 52);
+    match exponent {
+        2046 => significand.wrapping_shl(1),
+        smaller => significand.unbounded_shr(2045_u32.saturating_sub(smaller)),
     }
 }
 
