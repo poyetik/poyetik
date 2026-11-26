@@ -215,7 +215,7 @@ impl<'memory> Header<'memory> {
 
     /// The bytes of its description.
     #[must_use]
-    pub const fn description(self) -> &'memory [u8] {
+    pub const fn description_bytes(self) -> &'memory [u8] {
         self.description
     }
 }

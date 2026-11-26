@@ -363,8 +363,12 @@ mod tests {
                             memory: wide(memory.len()),
                         })
                 });
-            let read = Header::read(offset, &memory)
-                .map(|header| (header.version().packed(), header.description().to_vec()));
+            let read = Header::read(offset, &memory).map(|header| {
+                (
+                    header.version().packed(),
+                    header.description_bytes().to_vec(),
+                )
+            });
             if read == expected {
                 Ok(())
             } else {

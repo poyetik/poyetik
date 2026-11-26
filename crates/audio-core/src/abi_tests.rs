@@ -592,7 +592,7 @@ fn finds_the_version_and_the_description_of_a_header() {
         memory.extend(b"after");
         let header = Header::read(u32::try_from(offset).expect("a small offset"), &memory);
         assert_eq!(
-            header.map(|header| (header.version(), header.description())),
+            header.map(|header| (header.version(), header.description_bytes())),
             Ok((ContractVersion::new(2, 5), &b"abc"[..])),
             "at {offset}"
         );
@@ -603,10 +603,10 @@ fn finds_the_version_and_the_description_of_a_header() {
 fn reads_a_header_whose_description_ends_with_the_memory() {
     let memory = memory_with(8, 1, 4, b"last");
     let header = Header::read(8, &memory).expect("inside its memory");
-    assert_eq!(header.description(), b"last", "description");
+    assert_eq!(header.description_bytes(), b"last", "description");
     let empty = memory_with(0, 1, 0, b"");
     assert_eq!(
-        Header::read(0, &empty).map(Header::description),
+        Header::read(0, &empty).map(Header::description_bytes),
         Ok(&b""[..]),
         "none: the header gives them"
     );
