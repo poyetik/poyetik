@@ -23,6 +23,7 @@ use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 use core::fmt;
 
+use audio_core::host::needs_escape;
 use audio_core::{Connection, CoreError, Node, NodeId, Patch};
 use serde::de::{self, Deserialize, Deserializer, MapAccess, Visitor};
 use serde_derive::Deserialize;
@@ -43,27 +44,10 @@ pub const MAX_PATCH_BYTES: usize = 16 * 1024 * 1024;
 /// quote a document of up to [`MAX_PATCH_BYTES`].
 pub const MAX_MESSAGE_CHARS: usize = 1_000;
 
-/// Whether `character` must not reach a terminal or a page as is: control characters (a
-/// newline would forge a second line, ESC starts terminal sequences), bidirectional
-/// formatting characters (they reorder what is shown) and the Unicode line and paragraph
-/// separators.
-const fn needs_escape(character: char) -> bool {
-    character.is_control()
-        || matches!(
-            character,
-            '\u{61c}'
-                | '\u{200e}'
-                | '\u{200f}'
-                | '\u{202a}'..='\u{202e}'
-                | '\u{2066}'..='\u{2069}'
-                | '\u{2028}'
-                | '\u{2029}'
-        )
-}
-
 /// `message` made safe to show, on one line and bounded.
 ///
-/// Every character that could break the line or drive a terminal is escaped as `\u{..}`;
+/// Every character that could break the line or drive a terminal
+/// ([`audio_core::host::needs_escape`]) is escaped as `\u{..}`;
 /// past [`MAX_MESSAGE_CHARS`] characters (escapes counted whole, never split), the text
 /// is cut and marked with `…`.
 ///

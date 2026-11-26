@@ -44,7 +44,7 @@ pub enum TextKind {
 /// - [`Fault::Character`], its first character that would drive a terminal, forge a line or
 ///   reorder what is shown: a control character (C0, DEL and C1), a bidirectional formatting
 ///   character, or the line or paragraph separator, the characters a message escapes
-///   (`spec/safe-message-vectors.json`); and in a name, one that shows nothing, so that
+///   ([`needs_escape`]); and in a name, one that shows nothing, so that
 ///   `gain` and `gain` followed by U+200B would read as one name: a default-ignorable code
 ///   point (Unicode's `Default_Ignorable_Code_Point`, as its version 14.0 lists it), U+2800,
 ///   the braille pattern without a dot, or whitespace other than U+0020, which reads as one;
@@ -56,7 +56,7 @@ pub enum TextKind {
 #[must_use]
 pub fn text_fault(text: &str, kind: TextKind) -> Option<Fault> {
     let refused = |character: char| {
-        unsafe_to_show(character)
+        needs_escape(character)
             || (kind != TextKind::DescriptionText && character != ' ' && shows_nothing(character))
     };
     text.chars()
@@ -77,8 +77,15 @@ const fn shows_nothing(character: char) -> bool {
     character.is_whitespace() || default_ignorable(character) || character == '\u{2800}'
 }
 
-/// Whether `character` would drive a terminal, forge a line or reorder what is shown.
-const fn unsafe_to_show(character: char) -> bool {
+/// Whether `character` must not reach a terminal or a page as is.
+///
+/// A control character (C0, DEL and C1: a newline would forge a second line, ESC starts
+/// terminal sequences), a bidirectional formatting character (it reorders what is shown), or
+/// the line or paragraph separator. The characters a message escapes (`spec/safe-message-vectors.json`, its `unsafe` vector),
+/// in one rule: `audio_patch::safe_message` escapes them by it, and [`text_fault`] refuses
+/// them by it in every text of a description.
+#[must_use]
+pub const fn needs_escape(character: char) -> bool {
     character.is_control()
         || matches!(
             character,

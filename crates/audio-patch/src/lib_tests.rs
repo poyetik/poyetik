@@ -6,12 +6,11 @@ use alloc::string::{String, ToString};
 use alloc::vec;
 use alloc::vec::Vec;
 
-use audio_core::host::{Fault, TextKind, text_fault};
+use audio_core::host::{Fault, TextKind, needs_escape, text_fault};
 use audio_core::{Connection, CoreError, Node, NodeId, Patch};
 
 use super::{
-    FORMAT, MAX_MESSAGE_CHARS, MAX_PATCH_BYTES, PatchError, PortIndex, needs_escape, parse_patch,
-    safe_message,
+    FORMAT, MAX_MESSAGE_CHARS, MAX_PATCH_BYTES, PatchError, PortIndex, parse_patch, safe_message,
 };
 
 const EXAMPLE: &str = r#"{
@@ -179,8 +178,9 @@ fn a_module_describes_its_box_type_in_at_most_a_patch_s_size() {
 }
 
 /// A box type's description refuses in its texts exactly the characters a message escapes
-/// (`spec/box-contract.md`, section 4): every code point, the two sets compared, this one
-/// held to `spec/safe-message-vectors.json` by [`safe_message`]'s tests.
+/// (`spec/box-contract.md`, section 4): every code point, a description text refusing none
+/// beside those of the one predicate [`safe_message`] escapes by, which its tests hold to
+/// `spec/safe-message-vectors.json`.
 #[test]
 fn a_module_describes_its_box_type_without_a_character_a_message_escapes() {
     let differ: Vec<char> = (0..=0x0010_ffff_u32)
