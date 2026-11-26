@@ -529,8 +529,9 @@ export function parseBlock(text: string): number | undefined {
   if (text === "none") {
     return undefined;
   }
-  const block = Number(STEP_NUMBER_RE.test(text) ? text : Number.NaN);
-  if (!isPositiveInteger(block)) {
+  // Digits without a leading zero, then within the safe integers: "9007199254740993" reads as another number.
+  const block = Number(text);
+  if (!STEP_NUMBER_RE.test(text) || !Number.isSafeInteger(block)) {
     throw new ArgumentError(`invalid block: ${text} (a number from 1, or none)`);
   }
   return block;
@@ -540,19 +541,32 @@ export function parseBlock(text: string): number | undefined {
 export interface CardBlock {
   /** The block's number. */
   readonly block: number;
-  /** The 1-based numbers of its steps, in order (not always consecutive: a step added later may join an earlier block). */
-  readonly steps: readonly number[];
+  /** The 1-based numbers of its steps, in order (not always consecutive: a step added later may join an earlier block); never empty, since a block is the number its steps name. */
+  readonly steps: StepNumbers;
   /** Whether every step of the block is done. */
   readonly done: boolean;
 }
 
+/** A list of 1-based step numbers that holds at least one. */
+export type StepNumbers = readonly [number, ...number[]];
+
 /** The review blocks of a card, by increasing number; empty when no step is in a block. */
 export function cardBlocks(card: Pick<Card, "steps">): CardBlock[] {
-  const numbers = [...new Set(card.steps.flatMap((step) => (step.block === undefined ? [] : [step.block])))].sort((left, right) => left - right);
-  return numbers.map((block) => {
-    const steps = card.steps.flatMap((step, i) => (step.block === block ? [{ number: i + 1, done: step.done }] : []));
-    return { block, steps: steps.map((step) => step.number), done: steps.every((step) => step.done) };
+  // One pass over the steps: a block is made by its first step, so its list is never empty.
+  const blocks = new Map<number, { steps: [number, ...number[]]; done: boolean }>();
+  card.steps.forEach((step, i) => {
+    if (step.block === undefined) {
+      return;
+    }
+    const found = blocks.get(step.block);
+    if (found === undefined) {
+      blocks.set(step.block, { steps: [i + 1], done: step.done });
+    } else {
+      found.steps.push(i + 1);
+      found.done = found.done && step.done;
+    }
   });
+  return [...blocks].sort(([left], [right]) => left - right).map(([block, { steps, done }]) => ({ block, steps, done }));
 }
 
 /** A run of block numbers no step uses, `from` to `to` included. */
@@ -595,7 +609,7 @@ export function blockLabel(block: Pick<CardBlock, "block" | "steps">): string {
  * Writes a list of step numbers as a reader says it, runs of three or more joined by "to":
  * `[4]` is "step 4", `[5, 6]` "steps 5 and 6", `[16, 17, 18, 39]` "steps 16 to 18 and 39".
  */
-export function formatSteps(numbers: readonly number[]): string {
+export function formatSteps(numbers: StepNumbers): string {
   const runs: number[][] = [];
   for (const number of numbers) {
     const last = runs.at(-1);
