@@ -346,7 +346,20 @@ fn tries_a_value_away_from_the_default() {
     gain_of!(Quarter, QUARTER);
     gain_of!(Gain, GAIN);
     gain_of!(Centered, CENTERED);
+    // Each the midpoint once given to a box, where a zero of either sign is one value.
+    const MINUS_ZERO: ParamSpec = audio_core::param!("gain", "gain", -0.0, -1.0, 1.0);
+    const BELOW: ParamSpec = audio_core::param!("gain", "gain", 1e-40, -1.0, 1.0);
+    const ABOVE: ParamSpec = audio_core::param!(
+        "gain",
+        "gain",
+        f64::from_bits(0x3810_0000_0000_0000),
+        -1.0,
+        1.0
+    );
     gain_of!(Zero, ZERO);
+    gain_of!(MinusZero, MINUS_ZERO);
+    gain_of!(Below, BELOW);
+    gain_of!(Above, ABOVE);
     let wide = |value: f64| vec![value.to_bits()];
     assert_eq!(given_sets::<Quarter>()[2], wide(0.5_f64), "the midpoint");
     assert_eq!(
@@ -363,6 +376,21 @@ fn tries_a_value_away_from_the_default() {
         given_sets::<Zero>()[2],
         wide(0.5_f64),
         "halfway from the default 0 to the maximum"
+    );
+    assert_eq!(
+        given_sets::<MinusZero>()[2],
+        wide(0.5_f64),
+        "halfway from the default -0 to the maximum"
+    );
+    assert_eq!(
+        given_sets::<Below>()[2],
+        wide(0.5_f64),
+        "halfway from a default below 2^-126, given as 0, to the maximum"
+    );
+    assert_eq!(
+        given_sets::<Above>()[2],
+        wide(0.0_f64),
+        "the midpoint 0, which a default of 2^-126 is not"
     );
 }
 

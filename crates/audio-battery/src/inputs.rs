@@ -29,14 +29,25 @@ impl BatterySample for Binary32 {
 /// Blocks rendered per run.
 pub const BLOCKS: usize = 8;
 
-/// A value that differs from the default whenever the range allows it: the midpoint, or
-/// the point halfway between the default and the maximum when the default is the midpoint.
-/// So that a box hard-coding its default cannot pass. Within the range, rounded: a bound
-/// is zero or at least 2^-126 in magnitude, so halving it is exact in binary64, and the
-/// sum of two halves of the range rounds to a value between them.
+/// A value a box that hard-codes the default of `param` does not give: the midpoint of the
+/// range, or the point halfway between the default and the maximum when the default, as a box
+/// is given it, is the midpoint (a zero of either sign alike). A range of one value has no
+/// other.
+///
+/// Within the range, rounded: a bound is zero or at least 2^-126 in magnitude, so halving it
+/// is exact in binary64, and the sum of two halves of the range rounds to a value between
+/// them.
 fn away_from_default(param: &ParamSpec) -> f64 {
     let midpoint = param.minimum() / 2.0_f64 + param.maximum() / 2.0_f64;
-    if midpoint.to_bits() == param.default_value().to_bits() {
+    // As a box is given it, a zero of either sign alike.
+    let given = |value: f64| {
+        if value.abs() < f64::from(f32::MIN_POSITIVE) {
+            0.0_f64
+        } else {
+            value
+        }
+    };
+    if given(midpoint).to_bits() == given(param.default_value()).to_bits() {
         param.default_value() / 2.0_f64 + param.maximum() / 2.0_f64
     } else {
         midpoint
