@@ -7,14 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- `cargo xtask check` (its step "Rust doc tests, the error code of each compile_fail checked") took the fixture `crates/xtask/tests/fixtures/doc-codes`'s failure as its pass whenever its output held the expected error code, a command that never started or was stopped by a signal included; it now needs the fixture to have run and exited with a code, saying it. A command whose output is its result and that fails while writing bytes out of UTF-8 is now reported by its exit, its output kept with those bytes replaced, no longer as a command that wrote no text.
+- `visual_gpu::bench::Measured`, the GPU `visual_gpu::bench::measure` measures (whether it has a clock, its name, its timed renders and encodings, the images it measures into), which `GpuSquare` implements: taken as a generic, the measured GPU's path compiles to the same calls; a test's GPU refuses a render, an encoding or an allocation at any call of a measurement, and the benchmark's `System` opens its GPU through a function a test replaces with one opening none.
+- A visual box law, history (`visual-testkit`): an instance renders each image of the matrix, in order, with the same bits as a fresh instance that renders it alone, so that a box whose bits change once it has rendered anything is caught at any index of the matrix, not only at its ends; the size change law's references are a fresh instance's images again.
+- `cargo xtask check` refuses, in the `[Unreleased]` section of `CHANGELOG.md`, a kind of change heading repeated or out of Keep a Changelog's order (Added, Changed, Deprecated, Removed, Fixed, Security), as every released section keeps them.
 
 ### Changed
 
-- `visual_core::ImageSize::new`, `visual_core::ImageRate::new` and `visual_core::Seconds::new` are `const fn`, accepting and refusing exactly as before, so that a size, a rate or a duration can be a constant checked at compile time. `visual_gpu::bench::CHECKED` and `visual_gpu::bench::SHOWN` are `ImageSize` constants (they were pairs of integers), and the square the GPU benchmark measures is built at compile time: a size or a square the library refuses fails the build instead of every measurement.
-- `visual_gpu::bench::measure` measures any GPU implementing `visual_gpu::bench::Measured` (whether it has a clock, its name, its timed renders and encodings, the images it measures into), which `GpuSquare` implements: taken as a generic, the measured GPU's path compiles to the same calls; a test's GPU refuses a render, an encoding or an allocation at any call of a measurement, and the benchmark's `System` opens its GPU through a function a test replaces with one opening none.
+- **Breaking:** `visual_gpu::bench::CHECKED` and `visual_gpu::bench::SHOWN` are `ImageSize` constants (they were pairs of integers), and the square the GPU benchmark measures is built at compile time: a size or a square the library refuses fails the build instead of every measurement. To build them, `visual_core::ImageSize::new`, `visual_core::ImageRate::new` and `visual_core::Seconds::new` are `const fn`, accepting and refusing exactly as before, so that a size, a rate or a duration can be a constant checked at compile time.
+
+### Fixed
+
+- `cargo xtask check` (its step "Rust doc tests, the error code of each compile_fail checked") took the fixture `crates/xtask/tests/fixtures/doc-codes`'s failure as its pass whenever its output held the expected error code, a command that never started or was stopped by a signal included; it now needs the fixture to have run and exited with a code, saying it. A command whose output is its result and that fails while writing bytes out of UTF-8 is now reported by its exit, its output kept with those bytes replaced, no longer as a command that wrote no text.
 
 ## [0.11.1] - 2026-11-26
 

@@ -1082,6 +1082,39 @@ fn refuses_every_line_of_unreleased_its_gates_do_not_read() {
 }
 
 #[test]
+fn refuses_the_kinds_of_change_out_of_order_or_twice() {
+    let after = |line: u8, heading: &str, before: &str| {
+        format!(
+            "CHANGELOG.md:{line}: `### {heading}` after `### {before}`: the kinds of change \
+             come once each, in Keep a Changelog's order (Added, Changed, Deprecated, Removed, \
+             Fixed, Security)"
+        )
+    };
+    assert_eq!(
+        crate::unreleased_shape_gate(&unreleased_with(
+            "### Fixed\n\n- One.\n\n### Changed\n\n- Two.\n"
+        )),
+        found("the shape of [Unreleased]", &[after(9, "Changed", "Fixed")]),
+        "Changed after Fixed"
+    );
+    assert_eq!(
+        crate::unreleased_shape_gate(&unreleased_with(
+            "### Added\n- One.\n### Added\n- Two.\n### Security\n### Added\n"
+        )),
+        found(
+            "the shape of [Unreleased]",
+            &[after(7, "Added", "Added"), after(10, "Added", "Security")]
+        ),
+        "a kind twice, each named at its line"
+    );
+    assert_eq!(
+        crate::unreleased_shape_gate(&unreleased_with("### Changed\n- One.\n### Fixed\n- Two.\n")),
+        Ok(()),
+        "kinds left out, the rest in order"
+    );
+}
+
+#[test]
 fn refuses_a_blank_line_between_two_entries_of_one_section() {
     let split = |lines: &[u8]| {
         let problems: Vec<String> = lines

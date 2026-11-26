@@ -318,11 +318,11 @@ fn names<'text>(spans: impl Iterator<Item = &'text str>) -> Vec<String> {
 /// The entries of `[Unreleased]` under its heading `### <kind>`, each with its line number.
 fn kind_entries(changelog: &str, of: &str) -> Vec<(usize, String)> {
     let mut lines = BTreeSet::new();
-    let mut kind = "";
+    let mut kind = None;
     for (line, text) in unreleased_lines(changelog) {
         match shape(text) {
-            Shape::Kind => kind = text.trim_start_matches("### "),
-            Shape::Entry(_) if kind == of => {
+            Shape::Kind(at) => kind = CHANGE_KINDS.get(at),
+            Shape::Entry(_) if kind == Some(&of) => {
                 let _new = lines.insert(line);
             }
             Shape::Entry(_) | Shape::Blank | Shape::Continued(_) | Shape::Other => {}
@@ -426,8 +426,8 @@ fn unreleased_lines(changelog: &str) -> impl Iterator<Item = (usize, &str)> {
 enum Shape<'line> {
     /// Nothing but white space.
     Blank,
-    /// A heading `### <kind>`, a kind of [`CHANGE_KINDS`].
-    Kind,
+    /// A heading `### <kind>`, a kind of [`CHANGE_KINDS`]: its place in that list.
+    Kind(usize),
     /// The first line of an entry, `- ` then its text, which this holds.
     Entry(&'line str),
     /// A line indented below an entry, part of it (its text wrapped, a list inside it):
@@ -442,11 +442,11 @@ fn shape(line: &str) -> Shape<'_> {
     if line.trim().is_empty() {
         return Shape::Blank;
     }
-    if line
+    if let Some(at) = line
         .strip_prefix("### ")
-        .is_some_and(|kind| CHANGE_KINDS.contains(&kind))
+        .and_then(|kind| CHANGE_KINDS.iter().position(|known| *known == kind))
     {
-        return Shape::Kind;
+        return Shape::Kind(at);
     }
     if let Some(entry) = line
         .strip_prefix("- ")
@@ -482,8 +482,23 @@ fn read_unreleased(changelog: &str) -> (Vec<(usize, String)>, Vec<String>) {
     // The first blank line since the open entry's last line, if any: an entry after it is
     // the same list's, split in two.
     let mut blank: Option<usize> = None;
+    // The place in [`CHANGE_KINDS`] of the last heading read, if any.
+    let mut last_kind: Option<usize> = None;
     for (line, text) in unreleased_lines(changelog) {
         let shape = shape(text);
+        if let (Shape::Kind(at), Some(before)) = (shape, last_kind)
+            && at <= before
+        {
+            problems.push(format!(
+                "{CHANGELOG}:{line}: `{text}` after `### {}`: the kinds of change come once \
+                 each, in Keep a Changelog's order ({})",
+                CHANGE_KINDS.get(before).copied().unwrap_or_default(),
+                CHANGE_KINDS.join(", ")
+            ));
+        }
+        if let Shape::Kind(at) = shape {
+            last_kind = Some(at);
+        }
         if let (Shape::Entry(_), Some(at), Some(_)) = (shape, blank, open.as_ref()) {
             problems.push(format!(
                 "{CHANGELOG}:{at}: a blank line between two entries of one section: the \
@@ -492,7 +507,7 @@ fn read_unreleased(changelog: &str) -> (Vec<(usize, String)>, Vec<String>) {
         }
         blank = match shape {
             Shape::Blank => blank.or(Some(line)),
-            Shape::Entry(_) | Shape::Continued(_) | Shape::Kind | Shape::Other => None,
+            Shape::Entry(_) | Shape::Continued(_) | Shape::Kind(_) | Shape::Other => None,
         };
         match (shape, open.as_mut()) {
             (Shape::Entry(entry), _) => entries.extend(open.replace((line, entry.to_owned()))),
@@ -500,7 +515,7 @@ fn read_unreleased(changelog: &str) -> (Vec<(usize, String)>, Vec<String>) {
                 entry.push(' ');
                 entry.push_str(more);
             }
-            (Shape::Kind, _) => entries.extend(open.take()),
+            (Shape::Kind(_), _) => entries.extend(open.take()),
             (Shape::Blank, _) => {}
             (Shape::Continued(_), None) | (Shape::Other, _) => {
                 entries.extend(open.take());
@@ -527,17 +542,18 @@ fn breaking(entry: &str) -> bool {
 /// Checks that every line of `[Unreleased]` has one of the shapes its gates read.
 ///
 /// A line is blank, a heading `### <kind>` (one of [`CHANGE_KINDS`]), the first line of an
-/// entry, `- ` then its text, or a line indented below an entry, part of it; and no blank line
+/// entry, `- ` then its text, or a line indented below an entry, part of it; no blank line
 /// stands between two entries of one section, which would make two lists of it that a reader
-/// takes for two sections. So [`BREAKING_ENTRY`],
+/// takes for two sections; and the headings come once each, in the order of
+/// [`CHANGE_KINDS`], Keep a Changelog's, as every released section keeps them. So [`BREAKING_ENTRY`],
 /// the one form the gates of breaking changes read, is the form of every entry: an entry under
 /// another bullet (`* `, `+ `, `1. `), which an editor's list style writes, would otherwise pass
 /// every gate of `[Unreleased]` unread.
 ///
 /// # Errors
 ///
-/// Returns every other line, and every blank line between two entries of one section, with
-/// its number.
+/// Returns every other line, every blank line between two entries of one section, and every
+/// heading out of order or repeated, with its number.
 pub fn unreleased_shape_gate(changelog: &str) -> Result<(), Failure> {
     verdict("the shape of [Unreleased]", read_unreleased(changelog).1)
 }
