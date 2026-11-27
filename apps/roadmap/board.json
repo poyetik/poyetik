@@ -1023,7 +1023,7 @@
           "done": false
         },
         {
-          "title": "Unviable reviews: a review names the test that kills the viable variant, but nothing shows that the test exercises the function, and four named tests never called theirs; confirm every named killer by applying the viable variant and seeing that test fail, correct the others, and decide whether the gate can require the named test to reach the function",
+          "title": "Unviable reviews: a review names the test that kills the viable variant, but nothing shows that the test exercises the function, and four named tests never called theirs; confirm every named killer by applying the viable variant and seeing that test fail, correct the others, require the named test to be in the mutated crate, the only tests the mutant's run runs, and decide whether the gate can require it to reach the function",
           "done": false
         },
         {
@@ -1306,7 +1306,7 @@
       "column": "doing",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-26",
+      "updatedAt": "2026-11-27",
       "tasks": [
         {
           "title": "Engine design decisions, recorded before any code that depends on them: messages, event scheduling, feedback, polyphony, multichannel, rates, parallelism, hot swap, latency, state; including the Nyquist policy of oscillators, an exact integer phase accumulator, the output stage (headroom, non-finite samples), the input domain of boxes, and compiling, instantiating, parsing and building plans off the audio thread, or bounding and measuring what must stay there (the construction of the engine processor), hot swap included",
@@ -1374,7 +1374,7 @@
           "block": 3
         },
         {
-          "title": "Messages and rates, after step 40, with step 41: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE); the driven-body law comparing a box's messages too, a box with parameters and no outlet included",
+          "title": "Messages and rates, after step 40, with step 41: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE); the driven-body law comparing a box's messages too, a box with parameters and no outlet included; decision 5's measurements of a driven parameter (zipper noise under its changes, as spec/measurements.md defines it); where the boundary clamps, holds or flushes a value given outside a parameter's domain (a NaN, an infinity, a value beyond its range), each case tested",
           "done": false,
           "block": 4
         },
@@ -1499,12 +1499,12 @@
           "block": 5
         },
         {
-          "title": "Box contract, its host: built-in boxes and third-party externals through the ABI, explicit state, compile-friendly processing, routing resolved when the plan is built; every built-in box giving the same bits and the same cost directly and through the ABI, the cost measured by the instruction-count benchmarks of step 3 through the interface, by an exact comparison with the direct counts or a per-call allowance derived and written for the ABI (the NaN canonicalization and the flush of subnormal numbers of decision 25 are work per sample), never by the counts' tolerance alone (spec/engine-design.md decision 33), the plan still calling every built-in box directly and only a box type loaded at run time through one indirect call per box per block, never per sample; a loaded box type's spec is 'static today (`ParamValues` holds a `&'static ObjectSpec`), so unloading one needs its own ownership decision; the heap a module's description makes its reader use, measured at its limits and stated as a factor of its size, and the memory a description makes a box hold (its parameters, bounded by its bytes alone, its values and driven blocks, the buffers of its ports up to PORTS_MAX each way), measured and stated as factors in spec/box-contract.md, section 4, the plan's buffers allocated so that a failure is refused naming the box, after the module's runs are checked; a module loaded and run through the life cycle of the contract (spec/box-contract.md, section 5), each refusal of its load and of its calls reported with its reason: a module the contract refuses, a parameter region ending beyond its memory, a prepare that refuses, a call's frames outside 1 to its span, a memory grown or a trap outside prepare; a module's memory read through a window and its offset where a host cannot hold it whole (a 32-bit host, a browser), the readers taking that window, tested above 2^31; the runtime's stack depth and memory growth limit fixed and stated in the contract, with the WebAssembly proposals it accepts and a NaN computed inside a module as a known limitation; the driven-body law holding at every frame for a box type known only by its spec (a reference of one frame where today's is of 16)",
+          "title": "Box contract, its host: built-in boxes and third-party externals through the ABI, explicit state, compile-friendly processing, routing resolved when the plan is built; every built-in box giving the same bits and the same cost directly and through the ABI, the cost measured by the instruction-count benchmarks of step 3 through the interface, by an exact comparison with the direct counts or a per-call allowance derived and written for the ABI (the NaN canonicalization and the flush of subnormal numbers of decision 25 are work per sample), never by the counts' tolerance alone (spec/engine-design.md decision 33), the plan still calling every built-in box directly and only a box type loaded at run time through one indirect call per box per block, never per sample; a loaded box type's spec is 'static today (`ParamValues` holds a `&'static ObjectSpec`), so unloading one needs its own ownership decision; the heap a module's description makes its reader use, measured at its limits and stated as a factor of its size, and the memory a description makes a box hold (its parameters, bounded by its bytes alone, its values and driven blocks, the buffers of its ports up to PORTS_MAX each way), measured and stated as factors in spec/box-contract.md, section 4, the plan's buffers allocated so that a failure is refused naming the box, after the module's runs are checked; a module loaded and run through the life cycle of the contract (spec/box-contract.md, section 5), each refusal of its load and of its calls reported with its reason: a module the contract refuses, a parameter region ending beyond its memory, a prepare that refuses, a call's frames outside 1 to its span, a memory grown or a trap outside prepare; a module's memory read through a window and its offset where a host cannot hold it whole (a 32-bit host, a browser), the readers taking that window, tested above 2^31; the runtime's stack depth and memory growth limit fixed and stated in the contract, with the WebAssembly proposals it accepts and a NaN computed inside a module as a known limitation; the driven-body law holding at every frame for a box type known only by its spec (a reference of one frame where today's is of 16); a box type built at run time from a module's description, with a spec and a factory of its own (`ObjectSpec` and `Factory` are built-in and 'static today); a module's parameter bounds that a version-1 patch, whose values are binary32, cannot give exactly, stated in spec/box-contract.md, section 4, until #3 step 7 (never refused); a module whose box type name is a built-in's or another loaded module's, refused or resolved by a rule stated in section 5; `BufferRun::new` and `Runs::new` taking their offsets by name, so that two cannot be swapped; coverage-guided fuzzing of the module readers (the header, the description, the runs, with a versioned corpus); the texts of a description handed to what shows or reads them with the runs of default-ignorable code points a description text may hold removed or made visible (spec/limitations.md)",
           "done": false,
           "block": 4
         },
         {
-          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy; a message change ramping over a duration declared per parameter kind and overridable per box and per message, and its exponential floor or none, derived and measured) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default); the engine rendering a block by a box's driven body only when a value changes in it, `set` called on the grid of absolute frames, the driven laws run at every engine block of the matrix, each box's driven body counted by the instruction-count benchmarks and osc~'s measured under a varying frequency against an exact reference (its tune skipped when the frequency's bits are unchanged, if measured cheaper); a module receiving parameter changes",
+          "title": "Typed, smoothed parameters (kinds such as frequency, with a declared Nyquist policy; a message change ramping over a duration declared per parameter kind and overridable per box and per message, and its exponential floor or none, derived and measured) and sample-accurate timestamped events, in the engine and the patch format; an event quantum per patch and subpatch (1 frame by default); the engine rendering a block by a box's driven body only when a value changes in it, `set` called on the grid of absolute frames, the driven laws run at every engine block of the matrix, each box's driven body counted by the instruction-count benchmarks and osc~'s measured under a varying frequency against an exact reference, within a bound derived for that regime (its tune skipped when the frequency's bits are unchanged, if measured cheaper); a module receiving parameter changes; the driven values refilled at every engine block without the heap (`DrivenValues::within` allocates its blocks); a conformance case of a driven body, giving the same hashes natively and in WebAssembly",
           "done": false,
           "block": 4
         },
@@ -1691,7 +1691,7 @@
       "column": "later",
       "milestone": "M2 Editor",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-09",
+      "updatedAt": "2026-11-27",
       "tasks": [
         {
           "title": "Box contract expressible across a WebAssembly boundary: a stable, versioned interface, the same for built-in boxes",
@@ -1722,7 +1722,7 @@
           "done": false
         },
         {
-          "title": "External SDK: a Rust crate and a C header, a project template, and an external check command producing the same report",
+          "title": "External SDK: a Rust crate and a C header, a project template, and an external check command producing the same report; shared test vectors of the header and description format (spec/box-contract.md, sections 4 and 5), one per refusal with its expected reason as a literal, read by every reader and writer of the format, the engine's and the SDK's",
           "done": false
         },
         {
