@@ -688,6 +688,30 @@ fn finds_the_version_and_the_description_of_a_header() {
     }
 }
 
+/// A header left zeroed, as a module that writes none there leaves it, reads as version 0.0,
+/// which this engine accepts, and an empty description, refused as one whose algorithm version
+/// ends inside it, the cause `spec/box-contract.md`, section 5, names for such a module.
+#[test]
+fn refuses_a_zeroed_header_by_its_empty_description() {
+    let memory = [0_u8; 8];
+    let header = Header::read(0, &memory).expect("inside its memory");
+    assert_eq!(header.version(), ContractVersion::new(0, 0), "version 0.0");
+    assert_eq!(
+        header.version().check(SUPPORTED_VERSIONS),
+        Ok(()),
+        "accepted before 1.0"
+    );
+    assert_eq!(header.description_bytes(), &b""[..], "an empty description");
+    let refused = Description::read(header.description_bytes())
+        .err()
+        .map(|error| error.to_string());
+    assert_eq!(
+        refused.as_deref(),
+        Some("algorithm version: the bytes end inside it"),
+        "refused by its first field"
+    );
+}
+
 #[test]
 fn reads_a_header_whose_description_ends_with_the_memory() {
     let memory = memory_with(8, 1, 4, b"last");

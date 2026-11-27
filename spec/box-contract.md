@@ -68,7 +68,7 @@ It exports, with exactly these types, what the table below lists. **In this vers
 
 It may export other names, which the engine never uses, but none starting with `poyetik_`: the prefix is the contract's, for the exports of its later minor versions. It has no start function: instantiating it runs no code.
 
-**The header** lies in the memory as instantiation leaves it: the contract version (section 1, 32 bits), the length of the description in bytes (32 bits), both little-endian, then the description (section 4). An exported static of a language compiled to WebAssembly is a global holding its address, so a header is a static whose description follows its two integers. The engine reads it first, and refuses a header or a description that ends beyond the memory, then the version, then the description.
+**The header** lies in the memory as instantiation leaves it: the contract version (section 1, 32 bits), the length of the description in bytes (32 bits), both little-endian, then the description (section 4). An exported static of a language compiled to WebAssembly is a global holding its address, so a header is a static whose description follows its two integers. The engine reads it first, and refuses a header or a description that ends beyond the memory, then the version, then the description. A header left zeroed, as a module that writes none there leaves it, reads as version 0.0, which this version accepts, and an empty description, refused as one whose algorithm version ends inside it: the refusal such a module gets (`audio-core`'s `refuses_a_zeroed_header_by_its_empty_description`).
 
 **The life cycle.**
 
