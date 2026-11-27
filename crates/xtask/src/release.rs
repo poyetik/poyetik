@@ -706,7 +706,8 @@ pub fn breaking_spellings_gate(changelog: &str) -> Result<(), Failure> {
 /// `[Unreleased]` describes the change from the last version, whose version commit is the
 /// merge base with `main` (`base`, found with `against`): a breaking entry changes what that
 /// version holds, so at least one name it cites (of each code span, the last identifier before any
-/// `<` or `(`) is in `found`, the names git finds as words in the tree of `base`. An entry citing
+/// `<` or `(`, the part a tagged entry names, `**Breaking (<part>):**`, apart: it says where
+/// the break is, a part every version holds, never what breaks, `untagged`) is in `found`, the names git finds as words in the tree of `base`. An entry citing
 /// only names that version never had breaks nothing released. Every other name it cites is new
 /// in the release (what replaces the old, a variant gained), so an entry under `### Added` cites
 /// it too: what the branch adds is said where a reader of the release looks for it, never only
