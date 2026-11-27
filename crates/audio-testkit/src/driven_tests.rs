@@ -462,9 +462,10 @@ fn factory_laws<const CHEAT: u8>() -> Result<(), String> {
     >(spec::<Probe<CHEAT>, 2>(&[OUT]))
 }
 
+/// The laws accept a box whose bodies agree every 16 frames and through its factory; every
+/// frame, the control below accepts it, counting what the laws do with it.
 #[test]
 fn accepts_a_box_whose_bodies_agree() {
-    assert_eq!(laws::<RIGHT>(), Ok(()), "every frame");
     assert_eq!(coarse_laws::<RIGHT>(), Ok(()), "every 16 frames");
     assert_eq!(factory_laws::<RIGHT>(), Ok(()), "through its factory");
 }
