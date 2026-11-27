@@ -97,15 +97,15 @@ impl ParamSpec {
     ///
     /// # Errors
     ///
-    /// Returns the first of these that holds: [`ParamSpecError::NotFinite`] unless `minimum`
-    /// and `maximum` are finite, [`ParamSpecError::Unreachable`] if either is below 2^-126 in
-    /// magnitude but not zero (a value there is a zero once flushed, so no value would reach
-    /// such a bound, and every comparison with the range is of numbers at least 2^-126 in
-    /// magnitude or zeros, which no floating-point mode of a host changes),
-    /// [`ParamSpecError::Reversed`] unless `minimum` is at most `maximum`,
-    /// [`ParamSpecError::InfiniteWidth`] unless the range's width, `maximum` less `minimum`, is finite (a ramp across the range
-    /// computes it), and [`ParamSpecError::DefaultOutsideRange`] unless `default_value`,
-    /// flushed as a plan flushes it (below 2^-126 in magnitude, a zero of its sign), is
+    /// Returns a [`ParamSpecError`] naming the first rule of these the range breaks
+    /// ([`RangeRule`]), the minimum's before the maximum's: [`RangeRule::NotFinite`] unless
+    /// `minimum` and `maximum` are finite, [`RangeRule::Unreachable`] if either is below
+    /// 2^-126 in magnitude but not zero (a value there is a zero once flushed, so no value
+    /// would reach such a bound, and every comparison with the range is of numbers at least
+    /// 2^-126 in magnitude or zeros, which no floating-point mode of a host changes),
+    /// [`RangeRule::Reversed`] unless `minimum` is at most `maximum`, [`RangeRule::Width`]
+    /// unless the range's width, `maximum` less `minimum`, is finite (a ramp across the range
+    /// computes it), and [`RangeRule::Default`] unless `default_value`, flushed as a plan flushes it (below 2^-126 in magnitude, a zero of its sign), is
     /// within them, so that every parameter of every box type has a finite range holding its
     /// default, as a plan, the box laws and the fingerprint battery give it.
     pub const fn new(
@@ -123,11 +123,7 @@ impl ParamSpec {
                 minimum,
                 maximum,
             }),
-            Err(RangeFault::NotFinite(_)) => Err(ParamSpecError::NotFinite { name }),
-            Err(RangeFault::Reversed) => Err(ParamSpecError::Reversed { name }),
-            Err(RangeFault::Unreachable(_)) => Err(ParamSpecError::Unreachable { name }),
-            Err(RangeFault::Width) => Err(ParamSpecError::InfiniteWidth { name }),
-            Err(RangeFault::Default) => Err(ParamSpecError::DefaultOutsideRange { name }),
+            Err(rule) => Err(ParamSpecError { name, rule }),
         }
     }
 
@@ -175,20 +171,56 @@ impl ParamSpec {
     }
 }
 
-/// Why a parameter's range is refused by [`range_rule`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum RangeFault {
-    /// This bound, the minimum or the maximum, is not finite.
-    NotFinite(f64),
-    /// The minimum is above the maximum.
-    Reversed,
+/// A bound of a parameter's range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Bound {
+    /// The least value of the range.
+    Minimum,
+    /// The greatest value of the range.
+    Maximum,
+}
+
+/// The rule of a parameter's range a range breaks.
+///
+/// The one rule of every box type's ranges ([`ParamSpec::new`],
+/// [`crate::host::Fault::Range`]), each with one text, which the compile error of
+/// [`crate::param!`], [`ParamSpecError`]'s display and a module's refusal share
+/// ([`RangeRule::reason`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RangeRule {
+    /// This bound is not finite.
+    NotFinite(Bound),
     /// This bound is below 2^-126 in magnitude but not zero: no value reaches it once
     /// flushed.
-    Unreachable(f64),
+    Unreachable(Bound),
+    /// The minimum is above the maximum.
+    Reversed,
     /// The width, the maximum less the minimum, is not finite in binary64.
     Width,
     /// The default, flushed, is not within the range: outside it, or not a number.
     Default,
+}
+
+impl RangeRule {
+    /// Why the range is refused, in words, of a parameter: "its minimum is not finite".
+    #[must_use]
+    pub const fn reason(self) -> &'static str {
+        match self {
+            Self::NotFinite(Bound::Minimum) => "its minimum is not finite",
+            Self::NotFinite(Bound::Maximum) => "its maximum is not finite",
+            Self::Unreachable(Bound::Minimum) => {
+                "its minimum is below 2^-126 in magnitude but not zero: no value reaches it"
+            }
+            Self::Unreachable(Bound::Maximum) => {
+                "its maximum is below 2^-126 in magnitude but not zero: no value reaches it"
+            }
+            Self::Reversed => "its minimum is above its maximum",
+            Self::Width => "its width, its maximum less its minimum, is not finite in binary64",
+            Self::Default => "its default, flushed, is not within its range",
+        }
+    }
 }
 
 /// The one rule of a parameter's range, for every box type, built in ([`ParamSpec::new`])
@@ -206,30 +238,30 @@ pub(crate) const fn range_rule(
     default_value: f64,
     minimum: f64,
     maximum: f64,
-) -> Result<(), RangeFault> {
+) -> Result<(), RangeRule> {
     if !minimum.is_finite() {
-        return Err(RangeFault::NotFinite(minimum));
+        return Err(RangeRule::NotFinite(Bound::Minimum));
     }
     if !maximum.is_finite() {
-        return Err(RangeFault::NotFinite(maximum));
+        return Err(RangeRule::NotFinite(Bound::Maximum));
     }
     if !reachable(minimum) {
-        return Err(RangeFault::Unreachable(minimum));
+        return Err(RangeRule::Unreachable(Bound::Minimum));
     }
     if !reachable(maximum) {
-        return Err(RangeFault::Unreachable(maximum));
+        return Err(RangeRule::Unreachable(Bound::Maximum));
     }
     if minimum > maximum {
-        return Err(RangeFault::Reversed);
+        return Err(RangeRule::Reversed);
     }
     if infinite_width(minimum, maximum) {
-        return Err(RangeFault::Width);
+        return Err(RangeRule::Width);
     }
     let flushed = flush::parameter(default_value);
     if minimum <= flushed && flushed <= maximum {
         Ok(())
     } else {
-        Err(RangeFault::Default)
+        Err(RangeRule::Default)
     }
 }
 
@@ -378,70 +410,34 @@ pub struct ParamValues {
     values: Vec<Binary64>,
 }
 
-/// Why a parameter is refused ([`ParamSpec::new`]).
-///
-/// One variant per rule of a range, as a module's description names its refusals
-/// ([`crate::host::Fault`]), each with one text, which the compile error of [`crate::param!`]
-/// and the error's own display share ([`ParamSpecError::reason`]).
+/// Why a parameter is refused ([`ParamSpec::new`]): the rule of its range it breaks, the one
+/// rule of every box type's ranges, as a module's description names its refusals
+/// ([`crate::host::Fault::Range`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum ParamSpecError {
-    /// A parameter whose minimum or maximum is not finite.
-    NotFinite {
-        /// The parameter.
-        name: &'static str,
-    },
-    /// A parameter whose minimum is above its maximum.
-    Reversed {
-        /// The parameter.
-        name: &'static str,
-    },
-    /// A parameter whose minimum or maximum is below 2^-126 in magnitude but not zero, which
-    /// no value reaches once flushed.
-    Unreachable {
-        /// The parameter.
-        name: &'static str,
-    },
-    /// A parameter whose width, its maximum less its minimum, is not finite in binary64.
-    InfiniteWidth {
-        /// The parameter.
-        name: &'static str,
-    },
-    /// A parameter whose default, flushed, is not within its range: outside it, or not a
-    /// number.
-    DefaultOutsideRange {
-        /// The parameter.
-        name: &'static str,
-    },
+pub struct ParamSpecError {
+    /// The parameter.
+    name: &'static str,
+    /// The rule its range breaks.
+    rule: RangeRule,
 }
 
 impl ParamSpecError {
-    /// Why the parameter is refused, in words, without its name.
+    /// Why the parameter is refused, in words, without its name ([`RangeRule::reason`]).
     #[must_use]
     pub const fn reason(self) -> &'static str {
-        match self {
-            Self::NotFinite { .. } => "its minimum or its maximum is not finite",
-            Self::Reversed { .. } => "its minimum is above its maximum",
-            Self::Unreachable { .. } => {
-                "its minimum or its maximum is below 2^-126 in magnitude but not zero: no value \
-                 reaches it"
-            }
-            Self::InfiniteWidth { .. } => {
-                "its width, its maximum less its minimum, is not finite in binary64"
-            }
-            Self::DefaultOutsideRange { .. } => "its default, flushed, is not within its range",
-        }
+        self.rule.reason()
     }
 
     /// The parameter refused.
-    const fn name(self) -> &'static str {
-        match self {
-            Self::NotFinite { name }
-            | Self::Reversed { name }
-            | Self::Unreachable { name }
-            | Self::InfiniteWidth { name }
-            | Self::DefaultOutsideRange { name } => name,
-        }
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        self.name
+    }
+
+    /// The rule its range breaks.
+    #[must_use]
+    pub const fn rule(self) -> RangeRule {
+        self.rule
     }
 }
 

@@ -11,7 +11,7 @@ use super::{
     DescribedParam, DescribedPort, Description, DescriptionError, Fault, Field, PORTS_MAX, Part,
     PortKind, RESERVED_PORT_KINDS, Response,
 };
-use crate::{BoxMode, Capability, ParamSpec, ParamSpecError};
+use crate::{Bound, BoxMode, Capability, ParamSpec, ParamSpecError, RangeRule};
 
 /// A text as the format writes it.
 fn text(value: &[u8]) -> Vec<u8> {
@@ -768,81 +768,79 @@ fn refuses_what_repeats() {
     );
 }
 
+/// The refusal of a parameter's `[default, minimum, maximum]` for breaking `rule`, with the
+/// bits of its values.
+const fn range(rule: RangeRule, [value, minimum, maximum]: [f64; 3]) -> Fault {
+    Fault::Range {
+        rule,
+        value: value.to_bits(),
+        minimum: minimum.to_bits(),
+        maximum: maximum.to_bits(),
+    }
+}
+
 #[test]
 fn refuses_a_parameter_whose_range_or_default_no_value_meets() {
-    let bits = f64::to_bits;
-    let not_finite = |bound: f64| Fault::NotFinite { bound: bits(bound) };
-    let reversed = |minimum: f64, maximum: f64| Fault::Reversed {
-        minimum: bits(minimum),
-        maximum: bits(maximum),
-    };
-    let unreachable = |bound: f64| Fault::Unreachable { bound: bits(bound) };
-    let width = |minimum: f64, maximum: f64| Fault::Width {
-        minimum: bits(minimum),
-        maximum: bits(maximum),
-    };
-    let default = |[value, minimum, maximum]: [f64; 3]| Fault::Default {
-        value: bits(value),
-        minimum: bits(minimum),
-        maximum: bits(maximum),
-    };
     let max = f64::MAX;
-    for (values, fault) in [
-        ([0.0_f64, 1.0_f64, 0.0_f64], reversed(1.0_f64, 0.0_f64)),
+    for (values, rule) in [
+        ([0.0_f64, 1.0_f64, 0.0_f64], RangeRule::Reversed),
         (
             [0.0_f64, f64::NEG_INFINITY, 1.0_f64],
-            not_finite(f64::NEG_INFINITY),
+            RangeRule::NotFinite(Bound::Minimum),
         ),
-        ([0.0_f64, 0.0_f64, f64::INFINITY], not_finite(f64::INFINITY)),
-        ([0.0_f64, f64::NAN, 1.0_f64], not_finite(f64::NAN)),
-        ([0.0_f64, 0.0_f64, f64::NAN], not_finite(f64::NAN)),
-        ([0.5_f64, 1e-40_f64, 1.0_f64], unreachable(1e-40_f64)),
-        ([0.0_f64, -1.0_f64, 1e-310_f64], unreachable(1e-310_f64)),
+        (
+            [0.0_f64, 0.0_f64, f64::INFINITY],
+            RangeRule::NotFinite(Bound::Maximum),
+        ),
+        (
+            [0.0_f64, f64::NAN, 1.0_f64],
+            RangeRule::NotFinite(Bound::Minimum),
+        ),
+        (
+            [0.0_f64, 0.0_f64, f64::NAN],
+            RangeRule::NotFinite(Bound::Maximum),
+        ),
+        (
+            [0.5_f64, 1e-40_f64, 1.0_f64],
+            RangeRule::Unreachable(Bound::Minimum),
+        ),
+        (
+            [0.0_f64, -1.0_f64, 1e-310_f64],
+            RangeRule::Unreachable(Bound::Maximum),
+        ),
         // The minimum is told before the maximum, and the bounds no value reaches before the
         // order.
         (
             [0.0_f64, f64::NEG_INFINITY, f64::NAN],
-            not_finite(f64::NEG_INFINITY),
+            RangeRule::NotFinite(Bound::Minimum),
         ),
         (
             [0.0_f64, f64::INFINITY, 1e-310_f64],
-            not_finite(f64::INFINITY),
+            RangeRule::NotFinite(Bound::Minimum),
         ),
-        ([0.0_f64, -1e-310_f64, 1e-310_f64], unreachable(-1e-310_f64)),
-        ([0.0_f64, 1e-310_f64, -1.0_f64], unreachable(1e-310_f64)),
+        (
+            [0.0_f64, -1e-310_f64, 1e-310_f64],
+            RangeRule::Unreachable(Bound::Minimum),
+        ),
+        (
+            [0.0_f64, 1e-310_f64, -1.0_f64],
+            RangeRule::Unreachable(Bound::Minimum),
+        ),
         // Finite bounds, but no finite width: from the largest number, the width overflows from
         // half its last place, 2^970, on (a tie, to the even infinity).
-        ([0.0_f64, -max, max], width(-max, max)),
-        (
-            [0.0_f64, -max, HALF_LAST_PLACE],
-            width(-max, HALF_LAST_PLACE),
-        ),
-        (
-            [0.0_f64, -HALF_LAST_PLACE, max],
-            width(-HALF_LAST_PLACE, max),
-        ),
+        ([0.0_f64, -max, max], RangeRule::Width),
+        ([0.0_f64, -max, HALF_LAST_PLACE], RangeRule::Width),
+        ([0.0_f64, -HALF_LAST_PLACE, max], RangeRule::Width),
         // The order is told before the width: this range is reversed too.
-        ([0.0_f64, max, -max], reversed(max, -max)),
-        (
-            [1.5_f64, 0.0_f64, 1.0_f64],
-            default([1.5_f64, 0.0_f64, 1.0_f64]),
-        ),
-        (
-            [-0.5_f64, 0.0_f64, 1.0_f64],
-            default([-0.5_f64, 0.0_f64, 1.0_f64]),
-        ),
-        (
-            [f64::NAN, 0.0_f64, 1.0_f64],
-            default([f64::NAN, 0.0_f64, 1.0_f64]),
-        ),
-        (
-            [1e-40_f64, SMALLEST_NORMAL, 1.0_f64],
-            default([1e-40_f64, SMALLEST_NORMAL, 1.0_f64]),
-        ),
+        ([0.0_f64, max, -max], RangeRule::Reversed),
+        ([1.5_f64, 0.0_f64, 1.0_f64], RangeRule::Default),
+        ([-0.5_f64, 0.0_f64, 1.0_f64], RangeRule::Default),
+        ([f64::NAN, 0.0_f64, 1.0_f64], RangeRule::Default),
+        ([1e-40_f64, SMALLEST_NORMAL, 1.0_f64], RangeRule::Default),
     ] {
         assert_eq!(
             refusal(7, &list(&[param("p", "x", values)])),
-            Some(refused(param_at(0, Part::Values), fault)),
+            Some(refused(param_at(0, Part::Values), range(rule, values))),
             "{values:?}"
         );
     }
@@ -854,7 +852,7 @@ fn refuses_a_parameter_whose_range_or_default_no_value_meets() {
         refusal(7, &second),
         Some(refused(
             param_at(1, Part::Values),
-            default([2.0_f64, 0.0_f64, 1.0_f64])
+            range(RangeRule::Default, [2.0_f64, 0.0_f64, 1.0_f64])
         )),
         "the second parameter named"
     );
@@ -924,52 +922,27 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
     for default in edges {
         for minimum in edges {
             for maximum in edges {
-                let expected = match ParamSpec::new("p", "x", default, minimum, maximum) {
-                    Ok(_) => 0,
-                    Err(ParamSpecError::NotFinite { .. }) => 1,
-                    Err(ParamSpecError::InfiniteWidth { .. }) => 2,
-                    Err(ParamSpecError::DefaultOutsideRange { .. }) => 3,
-                    Err(ParamSpecError::Reversed { .. }) => 4,
-                    Err(ParamSpecError::Unreachable { .. }) => 5,
-                };
-                let read = match refusal(7, &list(&[param("p", "x", [default, minimum, maximum])]))
-                {
-                    None => 0,
-                    Some(DescriptionError {
-                        field:
-                            Field::Param {
-                                index: 0,
-                                part: Part::Values,
-                            },
-                        fault,
-                    }) => match fault {
-                        Fault::NotFinite { .. } => 1,
-                        Fault::Reversed { .. } => 4,
-                        Fault::Unreachable { .. } => 5,
-                        Fault::Width { .. } => 2,
-                        Fault::Default { .. } => 3,
-                        Fault::Truncated
-                        | Fault::Trailing { .. }
-                        | Fault::Code(_)
-                        | Fault::Reserved(_)
-                        | Fault::Zero
-                        | Fault::TooLong { .. }
-                        | Fault::TooMany { .. }
-                        | Fault::NotUtf8
-                        | Fault::Blank
-                        | Fault::Character(_)
-                        | Fault::Whitespace
-                        | Fault::Spaces
-                        | Fault::Repeated { .. } => 6,
-                    },
-                    Some(_) => 7,
-                };
-                let counted = &mut verdicts[expected];
-                *counted = counted.saturating_add(1);
+                let expected = ParamSpec::new("p", "x", default, minimum, maximum)
+                    .err()
+                    .map(ParamSpecError::rule);
                 assert_eq!(
-                    read, expected,
-                    "default {default:?}, {minimum:?} to {maximum:?}"
+                    refusal(7, &list(&[param("p", "x", [default, minimum, maximum])])),
+                    expected.map(|rule| refused(
+                        param_at(0, Part::Values),
+                        range(rule, [default, minimum, maximum])
+                    )),
+                    "default {default:?}, [{minimum:?}, {maximum:?}]"
                 );
+                let kind = match expected {
+                    None => 0,
+                    Some(RangeRule::NotFinite(_)) => 1,
+                    Some(RangeRule::Width) => 2,
+                    Some(RangeRule::Default) => 3,
+                    Some(RangeRule::Reversed) => 4,
+                    Some(RangeRule::Unreachable(_)) => 5,
+                };
+                let counted = &mut verdicts[kind];
+                *counted = counted.saturating_add(1);
             }
         }
     }
@@ -1084,7 +1057,6 @@ fn says_the_field_and_the_fault() {
 
 #[test]
 fn says_the_values_of_a_parameter_it_refuses() {
-    let bits = f64::to_bits;
     for (field, fault, said) in [
         (
             Field::Params,
@@ -1093,51 +1065,53 @@ fn says_the_values_of_a_parameter_it_refuses() {
         ),
         (
             param_at(0, Part::Values),
-            Fault::NotFinite {
-                bound: bits(f64::NEG_INFINITY),
-            },
-            "parameter 0, its values: the bound -inf is not finite",
+            range(
+                RangeRule::NotFinite(Bound::Minimum),
+                [0.0_f64, f64::NEG_INFINITY, 1.0_f64],
+            ),
+            "parameter 0, its values: the minimum -inf is not finite",
         ),
         (
             param_at(0, Part::Values),
-            Fault::NotFinite {
-                bound: bits(f64::NAN),
-            },
-            "parameter 0, its values: the bound NaN is not finite",
+            range(
+                RangeRule::NotFinite(Bound::Maximum),
+                [0.0_f64, 0.0_f64, f64::NAN],
+            ),
+            "parameter 0, its values: the maximum NaN is not finite",
         ),
         (
             param_at(1, Part::Values),
-            Fault::Reversed {
-                minimum: bits(1.0_f64),
-                maximum: bits(-0.5_f64),
-            },
+            range(RangeRule::Reversed, [0.0_f64, 1.0_f64, -0.5_f64]),
             "parameter 1, its values: the minimum 1.0 is above the maximum -0.5",
         ),
         (
             param_at(0, Part::Values),
-            Fault::Unreachable {
-                bound: bits(1e-310_f64),
-            },
-            "parameter 0, its values: the bound 1e-310 is below 2^-126 in magnitude but not \
+            range(
+                RangeRule::Unreachable(Bound::Maximum),
+                [0.0_f64, -1.0_f64, 1e-310_f64],
+            ),
+            "parameter 0, its values: the maximum 1e-310 is below 2^-126 in magnitude but not \
              zero: no value reaches it",
         ),
         (
             param_at(0, Part::Values),
-            Fault::Width {
-                minimum: bits(-f64::MAX),
-                maximum: bits(f64::MAX),
-            },
+            range(
+                RangeRule::Unreachable(Bound::Minimum),
+                [0.0_f64, -1e-310_f64, 1.0_f64],
+            ),
+            "parameter 0, its values: the minimum -1e-310 is below 2^-126 in magnitude but not \
+             zero: no value reaches it",
+        ),
+        (
+            param_at(0, Part::Values),
+            range(RangeRule::Width, [0.0_f64, -f64::MAX, f64::MAX]),
             "parameter 0, its values: the width, 1.7976931348623157e308 less \
              -1.7976931348623157e308, is not finite in binary64",
         ),
         (
             param_at(0, Part::Values),
-            Fault::Default {
-                value: bits(f64::NAN),
-                minimum: bits(0.0_f64),
-                maximum: bits(1.0_f64),
-            },
-            "parameter 0, its values: the default NaN, flushed, is not within 0.0 to 1.0",
+            range(RangeRule::Default, [f64::NAN, 0.0_f64, 1.0_f64]),
+            "parameter 0, its values: the default NaN, flushed, is not within [0.0, 1.0]",
         ),
     ] {
         assert_eq!(

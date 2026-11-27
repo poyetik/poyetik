@@ -13,6 +13,7 @@ use super::{
 };
 use crate::host::{ParamBounds, Raw as _};
 use crate::{Binary32, Binary64, Block, Sample, SampleRate};
+use crate::{Bound, RangeRule};
 
 const PARAM: ParamSpec = crate::param!("p", "p", 0.0, -1.0, 2.0);
 
@@ -423,6 +424,11 @@ fn gives_the_defaults_of_the_box_type() {
 
 /// What [`ParamSpec::new`] gives for a default `default_value` and the range `minimum` to
 /// `maximum`: the bits of the three as kept, or the error.
+/// The refusal of the parameter `p` of [`checked`] for breaking `rule`.
+const fn refused(rule: RangeRule) -> Result<[u64; 3], ParamSpecError> {
+    Err(ParamSpecError { name: "p", rule })
+}
+
 fn checked(default_value: f64, minimum: f64, maximum: f64) -> Result<[u64; 3], ParamSpecError> {
     ParamSpec::new("p", "p", default_value, minimum, maximum)
         .map(|param| [param.default_value, param.minimum, param.maximum].map(f64::to_bits))
@@ -469,7 +475,7 @@ fn takes_a_default_within_its_finite_range_only() {
     ] {
         assert_eq!(
             checked(default_value, minimum, maximum),
-            Err(ParamSpecError::DefaultOutsideRange { name: "p" }),
+            refused(RangeRule::Default),
             "{default_value} outside [{minimum}, {maximum}] once flushed"
         );
     }
@@ -493,17 +499,25 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_only() {
             (-1.0_f64, negative),
             (negative, positive),
         ] {
+            let bound = if minimum.abs() < 1.0_f64 {
+                Bound::Minimum
+            } else {
+                Bound::Maximum
+            };
             assert_eq!(
                 checked(maximum, minimum, maximum),
-                Err(ParamSpecError::Unreachable { name: "p" }),
+                refused(RangeRule::Unreachable(bound)),
                 "[{minimum:e}, {maximum:e}]"
             );
         }
         // Before the order, which a host taking subnormal numbers as zeros would not see.
-        for (minimum, maximum) in [(1.0_f64, positive), (positive, negative)] {
+        for (minimum, maximum, bound) in [
+            (1.0_f64, positive, Bound::Maximum),
+            (positive, negative, Bound::Minimum),
+        ] {
             assert_eq!(
                 checked(0.0_f64, minimum, maximum),
-                Err(ParamSpecError::Unreachable { name: "p" }),
+                refused(RangeRule::Unreachable(bound)),
                 "[{minimum:e}, {maximum:e}]"
             );
         }
@@ -520,16 +534,17 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_only() {
             "zeros and the smallest normal binary32 are bounds: [{minimum:e}, {maximum:e}]"
         );
     }
-    for (minimum, maximum) in [
-        (f64::NEG_INFINITY, 1.0_f64),
-        (0.0_f64, f64::INFINITY),
-        (f64::NAN, 1.0_f64),
-        (0.0_f64, f64::NAN),
-        (f64::INFINITY, 0.0_f64),
+    for (minimum, maximum, bound) in [
+        (f64::NEG_INFINITY, 1.0_f64, Bound::Minimum),
+        (0.0_f64, f64::INFINITY, Bound::Maximum),
+        (f64::NAN, 1.0_f64, Bound::Minimum),
+        (0.0_f64, f64::NAN, Bound::Maximum),
+        (f64::INFINITY, 0.0_f64, Bound::Minimum),
+        (f64::NAN, f64::INFINITY, Bound::Minimum),
     ] {
         assert_eq!(
             checked(1.0_f64, minimum, maximum),
-            Err(ParamSpecError::NotFinite { name: "p" }),
+            refused(RangeRule::NotFinite(bound)),
             "[{minimum}, {maximum}]"
         );
     }
@@ -541,7 +556,7 @@ fn takes_a_finite_range_in_order_of_reachable_bounds_only() {
     ] {
         assert_eq!(
             checked(1.0_f64, minimum, maximum),
-            Err(ParamSpecError::Reversed { name: "p" }),
+            refused(RangeRule::Reversed),
             "[{minimum}, {maximum}]"
         );
     }
@@ -556,7 +571,7 @@ fn takes_a_range_of_finite_width_only() {
     for (minimum, maximum) in [(-half, half), (f64::MIN, f64::MAX), (-1e308_f64, 1e308_f64)] {
         assert_eq!(
             checked(0.0_f64, minimum, maximum),
-            Err(ParamSpecError::InfiniteWidth { name: "p" }),
+            refused(RangeRule::Width),
             "[{minimum:e}, {maximum:e}]"
         );
     }
@@ -566,7 +581,7 @@ fn takes_a_range_of_finite_width_only() {
     let (below_half, lower) = (half.next_down(), half.next_down().next_down());
     assert_eq!(
         checked(0.0_f64, -half, below_half),
-        Err(ParamSpecError::InfiniteWidth { name: "p" }),
+        refused(RangeRule::Width),
         "a width that rounds to 2^1024"
     );
     assert_eq!(
@@ -594,7 +609,7 @@ fn takes_a_range_of_finite_width_only() {
             checked(0.0_f64, f64::MIN, other),
         );
         if infinite {
-            let refused = Err(ParamSpecError::InfiniteWidth { name: "p" });
+            let refused = refused(RangeRule::Width);
             assert_eq!((under, over), (refused, refused), "{other:e}");
         } else {
             assert_eq!(
@@ -609,12 +624,12 @@ fn takes_a_range_of_finite_width_only() {
     }
     assert_eq!(
         checked(f64::NAN, f64::NAN, 1.0_f64),
-        Err(ParamSpecError::NotFinite { name: "p" }),
+        refused(RangeRule::NotFinite(Bound::Minimum)),
         "the range refused first"
     );
     assert_eq!(
         checked(f64::NAN, f64::MIN, f64::MAX),
-        Err(ParamSpecError::InfiniteWidth { name: "p" }),
+        refused(RangeRule::Width),
         "the width before the default"
     );
 }
@@ -652,7 +667,7 @@ fn decides_the_width_as_the_subtraction_rounded_to_nearest() {
         for &above in &bounds {
             let infinite = !(above + below).is_finite();
             let expected = if infinite {
-                Err(ParamSpecError::InfiniteWidth { name: "p" })
+                refused(RangeRule::Width)
             } else {
                 Ok([0, (-below).to_bits(), above.to_bits()])
             };
@@ -681,30 +696,39 @@ fn decides_the_width_as_the_subtraction_rounded_to_nearest() {
 /// displays after the parameter's name.
 #[test]
 fn says_why_a_parameter_is_refused() {
-    for (refused, reason) in [
+    for (rule, reason) in [
         (
-            ParamSpecError::NotFinite { name: "gain" },
-            "its minimum or its maximum is not finite",
+            RangeRule::NotFinite(Bound::Minimum),
+            "its minimum is not finite",
         ),
         (
-            ParamSpecError::Reversed { name: "gain" },
-            "its minimum is above its maximum",
+            RangeRule::NotFinite(Bound::Maximum),
+            "its maximum is not finite",
         ),
         (
-            ParamSpecError::Unreachable { name: "gain" },
-            "its minimum or its maximum is below 2^-126 in magnitude but not zero: no value \
-             reaches it",
+            RangeRule::Unreachable(Bound::Minimum),
+            "its minimum is below 2^-126 in magnitude but not zero: no value reaches it",
         ),
         (
-            ParamSpecError::InfiniteWidth { name: "gain" },
+            RangeRule::Unreachable(Bound::Maximum),
+            "its maximum is below 2^-126 in magnitude but not zero: no value reaches it",
+        ),
+        (RangeRule::Reversed, "its minimum is above its maximum"),
+        (
+            RangeRule::Width,
             "its width, its maximum less its minimum, is not finite in binary64",
         ),
         (
-            ParamSpecError::DefaultOutsideRange { name: "gain" },
+            RangeRule::Default,
             "its default, flushed, is not within its range",
         ),
     ] {
-        assert_eq!(refused.reason(), reason, "{refused:?}");
+        let refused = ParamSpecError { name: "gain", rule };
+        assert_eq!(
+            (refused.name(), refused.rule(), refused.reason()),
+            ("gain", rule, reason),
+            "{refused:?}"
+        );
         assert_eq!(
             format!("{refused}"),
             format!("parameter \"gain\": {reason}"),
@@ -1325,7 +1349,10 @@ fn creates_the_box_type_of_its_values() {
 #[test]
 fn are_errors_of_their_own() {
     let errors: [Box<dyn core::error::Error>; 2] = [
-        Box::new(ParamSpecError::DefaultOutsideRange { name: "gain" }),
+        Box::new(ParamSpecError {
+            name: "gain",
+            rule: RangeRule::Default,
+        }),
         Box::new(ParamError::Count {
             kind: "two~",
             expected: 2,

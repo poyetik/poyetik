@@ -10,7 +10,8 @@ use core::fmt;
 use core::num::NonZeroU32;
 
 use crate::abi::address;
-use crate::object::{RangeFault, range_rule};
+use crate::object::range_rule;
+use crate::{Bound, RangeRule};
 use crate::{BoxMode, Capability};
 
 /// The longest description a module may give, in bytes: the size a patch document may have
@@ -541,15 +542,8 @@ const fn admissible([value, minimum, maximum]: [u64; 3]) -> Result<(), Fault> {
         f64::from_bits(maximum),
     ) {
         Ok(()) => Ok(()),
-        Err(RangeFault::NotFinite(bound)) => Err(Fault::NotFinite {
-            bound: bound.to_bits(),
-        }),
-        Err(RangeFault::Reversed) => Err(Fault::Reversed { minimum, maximum }),
-        Err(RangeFault::Unreachable(bound)) => Err(Fault::Unreachable {
-            bound: bound.to_bits(),
-        }),
-        Err(RangeFault::Width) => Err(Fault::Width { minimum, maximum }),
-        Err(RangeFault::Default) => Err(Fault::Default {
+        Err(rule) => Err(Fault::Range {
+            rule,
             value,
             minimum,
             maximum,
@@ -702,33 +696,12 @@ pub enum Fault {
         /// The position of that earlier item.
         first: u32,
     },
-    /// A bound of a parameter's range that is not finite.
-    NotFinite {
-        /// The bits of the bound.
-        bound: u64,
-    },
-    /// A parameter's minimum above its maximum.
-    Reversed {
-        /// The bits of the minimum.
-        minimum: u64,
-        /// The bits of the maximum.
-        maximum: u64,
-    },
-    /// A bound below 2^-126 in magnitude but not zero, which no value reaches once flushed.
-    Unreachable {
-        /// The bits of the bound.
-        bound: u64,
-    },
-    /// A parameter's range whose width, its maximum less its minimum, is not finite in
-    /// binary64.
-    Width {
-        /// The bits of the minimum.
-        minimum: u64,
-        /// The bits of the maximum.
-        maximum: u64,
-    },
-    /// A parameter's default not within its range once flushed: outside it, or not a number.
-    Default {
+    /// A parameter's range that breaks a rule of every box type's ranges (the one rule of a
+    /// built-in box type's [`crate::ParamSpec::new`] too), with the bits of the values it
+    /// was read with.
+    Range {
+        /// The rule the range breaks.
+        rule: RangeRule,
         /// The bits of the default, as given.
         value: u64,
         /// The bits of the minimum.
@@ -765,37 +738,45 @@ impl fmt::Display for Fault {
             Self::Whitespace => f.write_str("holds whitespace"),
             Self::Spaces => f.write_str("starts or ends with a space, or holds two in a row"),
             Self::Repeated { first } => write!(f, "repeats item {first} of its list"),
-            Self::NotFinite { bound } => {
-                write!(f, "the bound {:?} is not finite", number(bound))
-            }
-            Self::Reversed { minimum, maximum } => write!(
-                f,
-                "the minimum {:?} is above the maximum {:?}",
-                number(minimum),
-                number(maximum)
-            ),
-            Self::Unreachable { bound } => write!(
-                f,
-                "the bound {:?} is below 2^-126 in magnitude but not zero: no value reaches it",
-                number(bound)
-            ),
-            Self::Width { minimum, maximum } => write!(
-                f,
-                "the width, {:?} less {:?}, is not finite in binary64",
-                number(maximum),
-                number(minimum)
-            ),
-            Self::Default {
+            Self::Range {
+                rule,
                 value,
                 minimum,
                 maximum,
-            } => write!(
-                f,
-                "the default {:?}, flushed, is not within {:?} to {:?}",
-                number(value),
-                number(minimum),
-                number(maximum)
-            ),
+            } => {
+                let (minimum, maximum) = (number(minimum), number(maximum));
+                let bound = |bound| match bound {
+                    Bound::Minimum => ("minimum", minimum),
+                    Bound::Maximum => ("maximum", maximum),
+                };
+                match rule {
+                    RangeRule::NotFinite(which) => {
+                        let (word, bound) = bound(which);
+                        write!(f, "the {word} {bound:?} is not finite")
+                    }
+                    RangeRule::Unreachable(which) => {
+                        let (word, bound) = bound(which);
+                        write!(
+                            f,
+                            "the {word} {bound:?} is below 2^-126 in magnitude but not zero: no \
+                             value reaches it"
+                        )
+                    }
+                    RangeRule::Reversed => write!(
+                        f,
+                        "the minimum {minimum:?} is above the maximum {maximum:?}"
+                    ),
+                    RangeRule::Width => write!(
+                        f,
+                        "the width, {maximum:?} less {minimum:?}, is not finite in binary64"
+                    ),
+                    RangeRule::Default => write!(
+                        f,
+                        "the default {:?}, flushed, is not within [{minimum:?}, {maximum:?}]",
+                        number(value)
+                    ),
+                }
+            }
         }
     }
 }
