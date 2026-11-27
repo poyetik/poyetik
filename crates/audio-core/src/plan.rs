@@ -203,8 +203,9 @@ struct Resolved<'patch> {
 /// A subnormal parameter, written or default, is a zero of its sign (decisions 5 and 11 of
 /// `spec/engine-design.md`): flushed before its range is checked, and given to the box as
 /// [`crate::Params`], so that a box is never given one. A parameter of format 1 is its binary32
-/// value, exact in binary64, so this is also the rule "below 2^-126 in binary64, before any
-/// rounding to binary32" that binary64 parameters will follow.
+/// value, exact in binary64, flushed after the document's number is rounded to binary32: a
+/// number in [2^-126 - 2^-150, 2^-126) is 2^-126 there, where binary64 parameters will hold
+/// it as a zero, which the migration from format 1 answers (#3 step 7).
 fn resolve<'patch>(
     node: &'patch Node,
     registry: &[&'static ObjectSpec],

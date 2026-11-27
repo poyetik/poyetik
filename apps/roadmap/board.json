@@ -10,7 +10,7 @@
       "column": "next",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-07",
-      "updatedAt": "2026-11-25",
+      "updatedAt": "2026-11-27",
       "tasks": [
         {
           "title": "Version 1: boxes, parameters and cables (spec/patch-format.md, read by audio-patch)",
@@ -37,7 +37,7 @@
           "done": false
         },
         {
-          "title": "Patch format version 2: parameter values in binary64 (the nearest binary64 to the JSON number), the algorithm version of every box and the render rules version of the patch (spec/engine-design.md decision 29); the engine plays the versions a patch names, a box type providing every version it still supports, and refuses a version it does not support with its reason; a documented, tested migration from version 1 (binary32 values kept exactly, the current versions recorded), version 1 test files kept and migrated in CI",
+          "title": "Patch format version 2: parameter values in binary64 (the nearest binary64 to the JSON number), the algorithm version of every box and the render rules version of the patch (spec/engine-design.md decision 29); the engine plays the versions a patch names, a box type providing every version it still supports, and refuses a version it does not support with its reason; a documented, tested migration from version 1 (binary32 values kept exactly, a number in [2^-126 - 2^-150, 2^-126), which version 1 reads as 2^-126 and version 2 as a zero, kept as version 1 read it, a test pinning that interval at both ends; the current versions recorded), version 1 test files kept and migrated in CI",
           "done": false
         },
         {
