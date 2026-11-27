@@ -638,6 +638,9 @@ fn check_precision<S: LawSample, const R: usize>(
 ///   step 15);
 /// - **a box in a module**: not created here; a module receives its parameters' changes while
 ///   it processes with roadmap #12 step 41;
+/// - **another engine block**: the run as the engine renders it is in blocks of
+///   [`audio_core::BLOCK_SIZE`] frames only, never in the other engine blocks of
+///   [`audio_core::ENGINE_BLOCKS`] (roadmap #12 step 41);
 /// - **a box that locks or waits**: only the heap is counted;
 /// - **a difference the values tried do not show**: [`BLOCKS`] blocks of
 ///   [`audio_core::BLOCK_SIZE`] frames a run, at the rates of the matrix. The values of
@@ -647,7 +650,10 @@ fn check_precision<S: LawSample, const R: usize>(
 ///   binary32 render, where a difference below the last bit of the outputs shows only once
 ///   the box's state has grown it. Two formulas that agree on all of these pass: that a box
 ///   has one arithmetic for both bodies is for its review;
-/// - **an error both bodies share**: conformance and each box's own tests see it.
+/// - **an error both bodies share**: the laws hold the bodies to each other only, and a box's
+///   own tests and conformance see such an error only where they render it; osc~'s frequency
+///   changing while it renders is measured against an exact reference with roadmap #12
+///   step 41.
 ///
 /// # Errors
 ///
