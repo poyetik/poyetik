@@ -24,14 +24,13 @@ impl ImageSize {
     /// bits included, where one allocation is at most `isize::MAX` bytes (2³¹ − 1) and the
     /// whole WebAssembly memory 4 GiB. So every target accepts the same sizes, and two images
     /// (one replacing the other) still fit in that memory. Whether a given machine has the
-    /// memory is another matter: creating an image cannot fail, so where the allocation is
-    /// refused (a microcontroller, a phone's browser) the program aborts natively and the
-    /// WebAssembly instance traps (`spec/limitations.md`, "Out of memory").
+    /// memory is another matter: where it cannot hold an image (a microcontroller, a phone's
+    /// browser), [`Image::try_new`] refuses it, naming its size, and neither aborts nor traps.
     pub const MAX_PIXELS: u64 = 1 << 25;
 
     /// [`ImageSize::MAX_PIXELS`] as a `u32`, which it fits, for [`ImageSize::new`] to check
-    /// sizes at compile time too (no conversion to `u64` is a `const fn`); a test holds the
-    /// two equal.
+    /// sizes at compile time too (no conversion to `u64` the lints allow is a `const fn`:
+    /// `u64::from` is not, and `as` is refused); a test holds the two equal.
     const MAX_PIXELS_U32: u32 = 1 << 25;
 
     /// Creates an image size.
