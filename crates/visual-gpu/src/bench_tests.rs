@@ -2016,20 +2016,34 @@ fn measures_this_gpu_by_its_clock() {
     let times = measure(&gpu).expect("measured: the GPU has a clock");
     assert_eq!(times.adapter, gpu.adapter());
     let measured_above = |timing: Timing, least: u64| matches!(timing, Timing::Measured { nanoseconds, tries } if nanoseconds >= least && (15..=TRIES).contains(&tries));
-    // A size only shown may come back unmeasured, never a time of 0, idle as under load
-    // (`SHOWN`). The checked size and the encoding must be measured.
-    // Rendering 1280x720 writes its 16 bytes a pixel to the GPU's memory: 14,745,600 bytes,
-    // at least 147 ns even at 100 TB/s, more than ten times the fastest GPU memory made.
-    assert!(measured_above(times.checked, 100), "{times:?}");
+    // The least time a pass can take: the bytes it moves through the GPU's memory, at
+    // 100 TB/s (10^5 bytes a nanosecond), a rate above the bandwidth of every GPU memory
+    // announced so far (HBM4: 13 to 22 TB/s); that no cache holding the image is faster is
+    // assumed, not measured. Never under 1 ns, the clock's least time measured.
+    let least = |size: visual_core::ImageSize, bytes_a_pixel: u64| {
+        (u64::from(size.width()) * u64::from(size.height()) * bytes_a_pixel / 100_000).max(1)
+    };
+    // A render writes 16 bytes a pixel: 147 ns at 1280x720, 36, 9 and 1 at the sizes only
+    // shown. A size only shown may come back unmeasured, never a time of 0, idle as under
+    // load (`SHOWN`). The checked size and the encoding must be measured.
     assert!(
-        times.shown.iter().all(|&time| measured_above(time, 1)
-            || matches!(time, Timing::Unmeasured { measured } if measured < REPEATS)),
+        measured_above(times.checked, least(CHECKED, 16)),
         "{times:?}"
     );
-    // Encoding 1280x720 for display moves 20 bytes a pixel through the GPU's memory (16
-    // read, 4 written): 18,432,000 bytes, at least 184 ns even at 100 TB/s, more than ten
-    // times the fastest GPU memory made (about 8 TB/s, 2026).
-    assert!(measured_above(times.display, 100), "{times:?}");
+    assert!(
+        times
+            .shown
+            .iter()
+            .zip(SHOWN)
+            .all(|(&time, size)| measured_above(time, least(size, 16))
+                || matches!(time, Timing::Unmeasured { measured } if measured < REPEATS)),
+        "{times:?}"
+    );
+    // Encoding for display moves 20 bytes a pixel (16 read, 4 written): 184 ns at 1280x720.
+    assert!(
+        measured_above(times.display, least(CHECKED, 20)),
+        "{times:?}"
+    );
     // A GPU without a clock is answered at once: a failure, nothing rendered (rendering
     // would measure nothing, every size unmeasured).
     let untimed = GpuSquare::open(wgpu::Backends::all(), |limits| limits, false)
@@ -2298,6 +2312,14 @@ fn takes_the_median_of_fifteen_measured_renders_after_the_warm_up() {
         Ok(timing(8, 15))
     );
     assert_eq!(count, 30, "fifteen to warm up, then fifteen measured");
+    // As the specification says them.
+    assert!(
+        STATING[0].1.contains(&format!(
+            "the median of {REPEATS} measured renders after {} to warm up",
+            super::WARM_UP
+        )),
+        "spec/benchmarks.md states the warm-up and the renders measured"
+    );
     // Every third render unmeasured (a pass whose timestamps the GPU did not write), each
     // taking its count: after the warm-up, renders 16 to 37 measure fifteen (16, 17, 19, 20,
     // 22, …, 35, 37) in 22 tries, whose median, the eighth, is 26.
@@ -2530,6 +2552,11 @@ impl Refusing {
     }
 }
 
+/// The size of the images [`Refusing`] allocates, whatever the size asked.
+fn one_pixel() -> visual_core::ImageSize {
+    visual_core::ImageSize::new(1, 1).expect("a valid size")
+}
+
 impl super::sealed::Sealed for Refusing {}
 
 impl super::TimedGpu for Refusing {
@@ -2562,9 +2589,13 @@ impl super::TimedGpu for Refusing {
         &self,
         size: visual_core::ImageSize,
     ) -> Result<visual_core::Image, visual_core::VisualError> {
+        // An image of one pixel when it is not refused, whatever the size asked: nothing
+        // reads it (`timed_render` writes nothing), and one of each measured size, zeroed at
+        // the test profile's opt-level, would cost seconds a run (the real images' sizes:
+        // `allocates_the_images_it_measures_at_the_size_asked`).
         match self.refuses() {
             Some(_) => Err(Self::no_room(size, visual_core::Holding::Image)),
-            None => visual_core::Image::try_new(size),
+            None => visual_core::Image::try_new(one_pixel()),
         }
     }
 
@@ -2572,9 +2603,10 @@ impl super::TimedGpu for Refusing {
         &self,
         size: visual_core::ImageSize,
     ) -> Result<visual_core::DisplayImage, visual_core::VisualError> {
+        // One pixel, as `image`.
         match self.refuses() {
             Some(_) => Err(Self::no_room(size, visual_core::Holding::DisplayEncoding)),
-            None => visual_core::DisplayImage::try_new(size),
+            None => visual_core::DisplayImage::try_new(one_pixel()),
         }
     }
 }
@@ -2624,7 +2656,17 @@ fn stops_measuring_at_whichever_call_the_gpu_refuses() {
         fails: calls,
         calls: core::cell::Cell::new(0),
     };
-    assert!(measure(&whole).is_ok(), "no call refused: measured");
+    let measured = timing(1000, REPEATS);
+    assert_eq!(
+        measure(&whole).map_err(|error| error.to_string()),
+        Ok(Times {
+            adapter: "refusing (test)".to_owned(),
+            checked: measured,
+            shown: [measured; 3],
+            display: measured,
+        }),
+        "no call refused: every time measured, 1 µs each"
+    );
     assert_eq!(whole.calls.get(), calls, "every call made once");
     // Without a clock: refused at once, before any call.
     let untimed = Refusing {
