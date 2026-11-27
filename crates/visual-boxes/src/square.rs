@@ -93,6 +93,16 @@ impl Square {
     ///
     /// Returns [`BoxError::InvalidSide`] when `side` is above [`Square::FULL_SIDE`].
     pub const fn new(rate: ImageRate, side: u32, cycle: Seconds) -> Result<Self, BoxError> {
+        Self::checked(rate, side, cycle)
+    }
+
+    /// [`Square::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Square::new`].
+    const fn checked(rate: ImageRate, side: u32, cycle: Seconds) -> Result<Self, BoxError> {
         if side > Self::FULL_SIDE {
             Err(BoxError::InvalidSide(side))
         } else {

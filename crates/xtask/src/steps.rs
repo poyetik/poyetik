@@ -57,6 +57,12 @@ impl Cmd {
     /// `program` with `args`, run in `dir`, with no variable of its own.
     #[must_use]
     pub fn new(program: &'static str, args: &[&str], dir: Dir) -> Self {
+        Self::of(program, args, dir)
+    }
+
+    /// [`Cmd::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn of(program: &'static str, args: &[&str], dir: Dir) -> Self {
         Self {
             program,
             args: args.iter().map(|&arg| (*arg).to_owned()).collect(),

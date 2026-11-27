@@ -225,6 +225,12 @@ impl View {
     /// No square yet.
     #[must_use]
     pub const fn new() -> Self {
+        Self::empty()
+    }
+
+    /// [`View::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn empty() -> Self {
         Self {
             shown: None,
             hash: [0; 32],
