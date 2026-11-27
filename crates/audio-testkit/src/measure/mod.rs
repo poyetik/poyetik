@@ -201,7 +201,9 @@ fn cycles(frequency: f64, frame: u32, rate: f64) -> f64 {
 /// two orders `k` and `j` fold onto the same frequency in `[0, rate / 2]` exactly when
 /// `(k - j)` or `(k + j)` times the fundamental is, and order `k` folds onto DC or Nyquist
 /// when `2k` times it is. Exact for a binary32 fundamental (the products have at most 29
-/// significant bits, and `%` is exact).
+/// significant bits, and `%` is exact). For another, it decides on the rounded product, so a
+/// product within half a unit in the last place of a whole number of turns counts as one,
+/// and its two frequencies are fitted as one (`tells_whole_turns_exactly`).
 fn whole_turns(multiple: f64, fundamental: f64, rate: f64) -> bool {
     (multiple * fundamental) % rate == 0.0_f64
 }

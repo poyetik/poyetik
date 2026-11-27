@@ -513,6 +513,9 @@ fn tells_whole_turns_exactly() {
         (7.0_f64, 1_000.0_f64, false),
         (2.0_f64, 4_000.0_f64, true),
         (3.0_f64, 2_666.666_748_046_875_f64, false),
+        // The binary64 nearest 8,000 / 3, whose product by 3 is 2^-41 below 8,000 and rounds
+        // to it: a whole number of turns, as decided on the rounded product.
+        (3.0_f64, 2_666.666_666_666_666_5_f64, true),
         (16.0_f64, 1_000.5_f64, false),
         (16.0_f64, 1_500.0_f64, true),
     ] {
