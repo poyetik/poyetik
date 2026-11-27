@@ -2445,18 +2445,21 @@ fn stops_each_gate_at_whichever_read_fails() {
             // exiting with an error, its output gone).
             let name = call.strip_prefix("capture ").unwrap_or(call).to_owned();
             let before = made.entry(name.clone()).or_default();
-            let mut broken = passing();
-            broken.spared = *before;
+            let occurrence = *before;
             *before = before.saturating_add(1);
+            let mut broken = passing();
+            broken.spared = occurrence;
             broken.broken = Some(name);
             let mut ways = vec![broken];
             if let Some(line) = call.strip_prefix("capture ") {
                 let mut silent = passing();
                 silent.fail = Some(line.to_owned());
+                silent.spared = occurrence;
                 ways.push(silent);
             } else if !call.starts_with("read ") && !call.starts_with("list ") {
                 let mut silent = passing();
                 silent.fail = Some(call.clone());
+                silent.spared = occurrence;
                 silent.files.retain(|key, _| {
                     key != &format!("stdout {call}") && key != &format!("stderr {call}")
                 });

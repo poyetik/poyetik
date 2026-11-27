@@ -52,8 +52,8 @@ pub const INEXACT_ERRORS: [(&str, &str, &str); 11] = [
     (
         "crates/xtask/src/actions_tests.rs",
         "stops_each_gate_at_whichever_read_fails",
-        "a harness over every way every call of every gate fails, 1312 of them: each failure is \
-         held to name the call broken, each gate's whole words are asserted by its own tests \
+        "a harness over every way every call of every gate fails, as many as it asserts: each \
+         failure is held to name the call broken, each gate's whole words are asserted by its own tests \
          (`each_gate_refuses_through_the_step_that_runs_it` and the gates' fixtures)",
     ),
     (

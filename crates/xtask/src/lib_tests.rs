@@ -831,8 +831,8 @@ pub(crate) struct Fake {
     /// A command that exits with code 2, as a usage error.
     pub(crate) refuse: Option<String>,
     pub(crate) broken: Option<String>,
-    /// How many of the calls `broken` names are answered before it breaks one: 0 breaks
-    /// the first, and so each one after.
+    /// How many of the calls `broken` or `fail` names are answered before it breaks or fails
+    /// one: 0 breaks or fails the first, and so each one after.
     pub(crate) spared: usize,
     pub(crate) killed: Option<String>,
     /// A command that, when it runs, rewrites a file: (command, file, new text).
@@ -853,6 +853,19 @@ impl Fake {
     /// answered.
     fn breaks(&mut self, line: &str) -> bool {
         if self.broken.as_deref() != Some(line) {
+            return false;
+        }
+        let Some(left) = self.spared.checked_sub(1) else {
+            return true;
+        };
+        self.spared = left;
+        false
+    }
+
+    /// Whether the call `line` ends in failure: named by `fail`, once `spared` such calls were
+    /// answered.
+    fn fails(&mut self, line: &str) -> bool {
+        if self.fail.as_deref() != Some(line) {
             return false;
         }
         let Some(left) = self.spared.checked_sub(1) else {
@@ -888,9 +901,7 @@ impl Runner for Fake {
                 exit: Exit::Code(2_i32),
                 reason: None,
             }
-        } else if self.fail.as_deref() == Some(line.as_str())
-            || self.files.contains_key(&format!("fails {line}"))
-        {
+        } else if self.fails(line.as_str()) || self.files.contains_key(&format!("fails {line}")) {
             // A failing command exits with 3: a code that is neither 0 nor 1, so that the
             // message is seen to report the real one. A command the fake holds a file
             // `fails <command line>` for fails too: one a passing check needs to fail.
@@ -1005,7 +1016,7 @@ impl Runner for Fake {
         }
         // A command set to fail ends in failure saying nothing, before any answer the fake
         // would give (a tool's version included).
-        if self.fail.as_deref() == Some(line.as_str()) {
+        if self.fails(line.as_str()) {
             return Err(CommandFailure::of(
                 cmd,
                 Failed::Ended {
