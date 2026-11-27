@@ -2930,9 +2930,8 @@ fn proves_the_codes_are_checked_before_the_doc_tests_run() {
         crate::actions::doc_tests(&mut other),
         Err(Failure {
             summary: format!(
-                "the doc tests of crates/xtask/tests/fixtures/doc-codes failed for another \
-                 reason than its error code: `{fixture}` exited with code 3: error: doctest \
-                 failed"
+                "the doc tests of crates/xtask/tests/fixtures/doc-codes did not fail on its error \
+                 code: `{fixture}` exited with code 3: error: doctest failed"
             ),
             details: [
                 "error[E0425]: cannot find value `missing` in this scope",

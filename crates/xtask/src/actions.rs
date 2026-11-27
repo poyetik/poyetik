@@ -1138,8 +1138,8 @@ pub(crate) fn fused_build(runner: &mut dyn Runner) -> Result<(), Failure> {
 /// alike ([`doc_tests_command`]).
 ///
 /// The fixture fails as it must only when it ran and exited with a code, saying it: one that
-/// did not start, was stopped by a signal, or succeeded writing output that is not text, is
-/// a failure for another reason.
+/// did not start, was stopped by a signal, or succeeded writing output that is not text, did
+/// not fail on its error code, and is said so.
 ///
 /// When the fixture does not fail as it must, the failure carries what rustdoc wrote, its
 /// output then its error output, one line each: the cause (`error[E…]`, the codes it
@@ -1149,7 +1149,8 @@ pub(crate) fn doc_tests(runner: &mut dyn Runner) -> Result<(), Failure> {
     let said = |text: &str| text.contains(UNCHECKED_CODE);
     let summary = match fixture.ended {
         // Its failure is its pass only when it ran and exited, saying the code: a command that
-        // did not start, or was stopped, says nothing of rustdoc, whatever its output holds.
+        // did not start, was stopped, or wrote output that is not text, says nothing of
+        // rustdoc, whatever its output holds.
         Err(CommandFailure {
             failed:
                 Failed::Ended {
@@ -1159,8 +1160,7 @@ pub(crate) fn doc_tests(runner: &mut dyn Runner) -> Result<(), Failure> {
             ..
         }) if said(&fixture.stdout) || said(&fixture.stderr) => None,
         Err(failure) => Some(format!(
-            "the doc tests of {DOC_CODES_FIXTURE} failed for another reason than its error \
-             code: {failure}"
+            "the doc tests of {DOC_CODES_FIXTURE} did not fail on its error code: {failure}"
         )),
         Ok(()) => Some(format!(
             "the doc tests of {DOC_CODES_FIXTURE} passed: rustdoc did not check the error code \

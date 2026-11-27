@@ -2504,8 +2504,8 @@ fn refuses_a_doc_codes_fixture_that_did_not_start() {
     assert_eq!(
         crate::actions::doc_tests(&mut fake).map_err(|failure| failure.summary),
         Err(format!(
-            "the doc tests of crates/xtask/tests/fixtures/doc-codes failed for another reason \
-             than its error code: cannot run `{fixture}`: not found"
+            "the doc tests of crates/xtask/tests/fixtures/doc-codes did not fail on its error \
+             code: cannot run `{fixture}`: not found"
         ))
     );
 }
@@ -2517,8 +2517,8 @@ fn refuses_a_doc_codes_fixture_stopped_or_not_text_whatever_it_said() {
     let fixture = crate::doc_codes_fixture_command().line();
     let refused = |why: &str| {
         Err(format!(
-            "the doc tests of crates/xtask/tests/fixtures/doc-codes failed for another reason \
-             than its error code: `{fixture}` {why}"
+            "the doc tests of crates/xtask/tests/fixtures/doc-codes did not fail on its error \
+             code: `{fixture}` {why}"
         ))
     };
     let mut stopped = passing();
