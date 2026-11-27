@@ -2605,11 +2605,16 @@ fn stops_measuring_at_whichever_call_the_gpu_refuses() {
             (4, fails - encoding_from)
         };
         let size = [CHECKED, SHOWN[0], SHOWN[1], SHOWN[2], CHECKED][median_at];
-        // An allocation refused, the encoding's display image, or a render or encoding.
+        // An allocation refused, the encoding's display image, or a render or encoding,
+        // named with its size.
+        let (width, height) = (size.width(), size.height());
         let expected = match (median_at, within) {
             (4, 2) => room(size, visual_core::Holding::DisplayEncoding),
             (_, 0) => room(size, visual_core::Holding::Image),
-            _ => format!("the GPU refused the work: call {fails}"),
+            (4, 1) | (0..4, _) => {
+                format!("render {width}x{height}: the GPU refused the work: call {fails}")
+            }
+            _ => format!("display {width}x{height}: the GPU refused the work: call {fails}"),
         };
         assert_eq!(said, Err(expected), "call {fails}");
         assert_eq!(gpu.calls.get(), fails + 1, "call {fails}: stopped there");

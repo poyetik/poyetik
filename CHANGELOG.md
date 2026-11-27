@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `visual_gpu::bench::measure`, and the benchmark with it, gave the GPU's refusal of a render or a display encoding as its bare text; it now names the pass and the size refused, as a line of the report does (`render 1280x720: ...`).
 - `cargo xtask check` (its step "Rust doc tests, the error code of each compile_fail checked") took the fixture `crates/xtask/tests/fixtures/doc-codes`'s failure as its pass whenever its output held the expected error code, a command that never started or was stopped by a signal included; it now needs the fixture to have run and exited with a code, saying it. A command whose output is its result and that fails while writing bytes out of UTF-8 is now reported by its exit, its output kept with those bytes replaced, no longer as a command that wrote no text.
 
 ## [0.11.1] - 2026-11-26

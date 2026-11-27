@@ -408,7 +408,17 @@ impl TimedGpu for GpuSquare {
 /// What the GPU's clock measures of rendering [`IMAGE`] at `size` ([`median_of`]).
 fn median<G: TimedGpu>(gpu: &G, square: &Square, size: ImageSize) -> Result<Timing, Failure> {
     let mut image = gpu.image(size)?;
-    median_of(&mut || Ok(gpu.timed_render(square, IMAGE, &mut image)?))
+    median_of(&mut || {
+        gpu.timed_render(square, IMAGE, &mut image)
+            .map_err(|error| refused("render", size, &error))
+    })
+}
+
+/// The GPU's refusal of `pass` (`render`, `display`) at `size`, naming both, as a report's
+/// line names them ([`report`]), so that a failure says which work was refused.
+fn refused(pass: &str, size: ImageSize, error: &GpuError) -> Failure {
+    let (width, height) = (size.width(), size.height());
+    format!("{pass} {width}x{height}: {error}").into()
 }
 
 /// The median of what `render` measures: run [`WARM_UP`] times unmeasured, then until
@@ -456,8 +466,9 @@ const NO_CLOCK: &str = "this GPU has no clock its programs can read";
 /// # Errors
 ///
 /// Returns, at once and with nothing rendered, that a GPU has no clock its programs can
-/// read; then why the GPU could not render, or an image or a display image the
-/// machine cannot hold (the library's error, [`visual_core::VisualError::OutOfMemory`]).
+/// read; then why the GPU could not render or encode, the pass and its size named, or an
+/// image or a display image the machine cannot hold (the library's error,
+/// [`visual_core::VisualError::OutOfMemory`]).
 pub fn measure<G: TimedGpu>(gpu: &G) -> Result<Times, Failure> {
     if !gpu.has_clock() {
         return Err(NO_CLOCK.into());
@@ -487,9 +498,14 @@ fn encoding_median<G: TimedGpu>(
     image_size: ImageSize,
 ) -> Result<Timing, Failure> {
     let mut image = gpu.image(image_size)?;
-    let _untimed: Option<f64> = gpu.timed_render(square, IMAGE, &mut image)?;
+    let _untimed: Option<f64> = gpu
+        .timed_render(square, IMAGE, &mut image)
+        .map_err(|error| refused("render", image_size, &error))?;
     let mut display = gpu.display(image_size)?;
-    median_of(&mut || Ok(gpu.timed_encode(&image, &mut display)?))
+    median_of(&mut || {
+        gpu.timed_encode(&image, &mut display)
+            .map_err(|error| refused("display", image_size, &error))
+    })
 }
 
 /// What the baseline holds of one GPU: its checked time, its system and its driver.
