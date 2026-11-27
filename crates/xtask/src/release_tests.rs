@@ -1107,6 +1107,15 @@ fn refuses_the_kinds_of_change_out_of_order_or_twice() {
         ),
         "a kind twice, each named at its line"
     );
+    // A kind repeated after one out of order: named too, after the furthest kind before it.
+    assert_eq!(
+        crate::unreleased_shape_gate(&unreleased_with("### Changed\n### Added\n### Changed\n")),
+        found(
+            "the shape of [Unreleased]",
+            &[after(6, "Added", "Changed"), after(7, "Changed", "Changed")]
+        ),
+        "a kind repeated after one out of order"
+    );
     assert_eq!(
         crate::unreleased_shape_gate(&unreleased_with("### Changed\n- One.\n### Fixed\n- Two.\n")),
         Ok(()),

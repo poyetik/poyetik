@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `visual_gpu::bench::TimedGpu`, what `visual_gpu::bench::measure` asks of the GPU it measures: whether it has a clock, its name, its timed renders and encodings, and the images it measures them into. `GpuSquare` implements it; it is sealed, so that only this crate does.
 - A visual box law, history (`visual-testkit`): an instance renders each image of the matrix, in order, with the same bits as a fresh instance that renders it alone, so that a box whose bits change once it has rendered anything is caught at any index of the matrix, not only at its ends; the size change law's references are a fresh instance's images again.
-- `cargo xtask check` refuses, in the `[Unreleased]` section of `CHANGELOG.md`, a kind of change heading repeated or out of Keep a Changelog's order (Added, Changed, Deprecated, Removed, Fixed, Security), as every released section keeps them.
+- `cargo xtask check` refuses, in the `[Unreleased]` section of `CHANGELOG.md`, a kind of change heading repeated or out of Keep a Changelog's order (Added, Changed, Deprecated, Removed, Fixed, Security), as every released section keeps them, naming each such heading with the furthest kind before it.
 
 ### Changed
 

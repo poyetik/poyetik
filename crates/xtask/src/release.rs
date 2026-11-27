@@ -482,11 +482,12 @@ fn read_unreleased(changelog: &str) -> (Vec<(usize, String)>, Vec<String>) {
     // The first blank line since the open entry's last line, if any: an entry after it is
     // the same list's, split in two.
     let mut blank: Option<usize> = None;
-    // The place in [`CHANGE_KINDS`] of the last heading read, if any.
-    let mut last_kind: Option<usize> = None;
+    // The furthest place in [`CHANGE_KINDS`] of the headings read, if any: each heading is
+    // compared with all those before it, not only the last.
+    let mut furthest_kind: Option<usize> = None;
     for (line, text) in unreleased_lines(changelog) {
         let shape = shape(text);
-        if let (Shape::Kind(at), Some(before)) = (shape, last_kind)
+        if let (Shape::Kind(at), Some(before)) = (shape, furthest_kind)
             && at <= before
         {
             problems.push(format!(
@@ -497,7 +498,7 @@ fn read_unreleased(changelog: &str) -> (Vec<(usize, String)>, Vec<String>) {
             ));
         }
         if let Shape::Kind(at) = shape {
-            last_kind = Some(at);
+            furthest_kind = Some(furthest_kind.map_or(at, |before| before.max(at)));
         }
         if let (Shape::Entry(_), Some(at), Some(_)) = (shape, blank, open.as_ref()) {
             problems.push(format!(
