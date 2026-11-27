@@ -1,8 +1,8 @@
 //! The laws every box must respect.
 
-use alloc::collections::BTreeSet;
+use alloc::collections::BTreeMap;
 
-use audio_core::host::{Fault, ParamBounds as _, Raw, TextKind, text_fault};
+use audio_core::host::{Fault, Field, ParamBounds as _, Part, Raw, TextKind, text_fault};
 use audio_core::{
     BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, BoxMode, Dispatch, Object, ObjectSpec,
     ParamSpec, ParamValues, Precision, Sample as _, SampleRate,
@@ -55,20 +55,23 @@ const LONG_RUN_BLOCKS: usize = 1024;
 const CASES: u32 = 32;
 
 /// Checks that a list of names, each of kind `kind`, holds none refused ([`check_text`]) and
-/// none twice.
+/// none twice: the name at position `index` of the list is said as `what(index)`, a name
+/// repeated with the position of the first, as a module's description is refused
+/// (`audio_core::host::Field`, `audio_core::host::Fault::Repeated`).
 ///
-/// Takes a trait object, not a generic iterator: one compiled function, so that the
-/// coverage of each line is measured over every caller together.
+/// Takes `dyn` arguments, not generics: one compiled function, so that the coverage of each
+/// line is measured over every caller together.
 fn unique_names(
-    what: &str,
+    what: &dyn Fn(u32) -> String,
     kind: TextKind,
     names: &mut dyn Iterator<Item = &str>,
 ) -> Result<(), String> {
-    let mut seen = BTreeSet::new();
-    for name in names {
-        check_text(name, kind, &format!("{what} name"))?;
-        if !seen.insert(name) {
-            return Err(format!("duplicate {what} \"{name}\""));
+    let mut seen = BTreeMap::new();
+    for (index, name) in (0_u32..).zip(names) {
+        let field = what(index);
+        check_text(name, kind, &field)?;
+        if let Some(first) = seen.insert(name, index) {
+            return Err(format!("{field} {name:?} {}", Fault::Repeated { first }));
         }
     }
     Ok(())
@@ -95,7 +98,10 @@ fn check_text(text: &str, kind: TextKind, what: &str) -> Result<(), String> {
 ///
 /// Returns the first problem found: a text the box contract refuses
 /// (`audio_core::host::text_fault`: the name and the description text of the box type, of a
-/// port or a parameter), a port or parameter name or a capability given twice. A parameter's
+/// port or a parameter), a port or parameter name or a capability given twice. A port, a
+/// parameter or a capability is named by its position, as a module's description is refused
+/// (`audio_core::host::Field`), and one given twice with the position of the first
+/// (`audio_core::host::Fault::Repeated`). A parameter's
 /// range and default need no law: a `audio_core::ParamSpec` is built only with a finite range
 /// holding its default.
 pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
@@ -106,41 +112,50 @@ pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
         "description text",
     )?;
     let kind = TextKind::Name;
+    let inlet = |index, part| Field::Inlet { index, part };
+    let outlet = |index, part| Field::Outlet { index, part };
+    let param = |index, part| Field::Param { index, part };
     unique_names(
-        "inlet",
+        &|index| inlet(index, Part::Name).to_string(),
         kind,
         &mut spec.inlets().iter().map(|port| port.name),
     )?;
     unique_names(
-        "outlet",
+        &|index| outlet(index, Part::Name).to_string(),
         kind,
         &mut spec.outlets().iter().map(|port| port.name),
     )?;
     unique_names(
-        "parameter",
+        &|index| param(index, Part::Name).to_string(),
         kind,
         &mut spec.params().iter().map(ParamSpec::name),
     )?;
-    let inlets = spec
-        .inlets()
-        .iter()
-        .map(|port| ("inlet", port.name, port.description));
-    let outlets = spec
-        .outlets()
-        .iter()
-        .map(|port| ("outlet", port.name, port.description));
-    let params = spec
-        .params()
-        .iter()
-        .map(|param| ("parameter", param.name(), param.description()));
-    for (what, item, text) in inlets.chain(outlets).chain(params) {
-        let of = format!("{what} \"{item}\": its description text");
-        check_text(text, TextKind::DescriptionText, &of)?;
-    }
-    let mut asked = BTreeSet::new();
-    for capability in spec.capabilities() {
-        if !asked.insert(capability) {
-            return Err(format!("duplicate capability {capability:?}"));
+    let texts = |field: &dyn Fn(u32, Part) -> Field, texts: &mut dyn Iterator<Item = &str>| {
+        (0_u32..).zip(texts).try_for_each(|(index, text)| {
+            let what = field(index, Part::DescriptionText).to_string();
+            check_text(text, TextKind::DescriptionText, &what)
+        })
+    };
+    texts(
+        &inlet,
+        &mut spec.inlets().iter().map(|port| port.description),
+    )?;
+    texts(
+        &outlet,
+        &mut spec.outlets().iter().map(|port| port.description),
+    )?;
+    texts(
+        &param,
+        &mut spec.params().iter().map(ParamSpec::description),
+    )?;
+    let mut asked = BTreeMap::new();
+    for (index, capability) in (0_u32..).zip(spec.capabilities()) {
+        if let Some(first) = asked.insert(capability, index) {
+            return Err(format!(
+                "{} {capability:?} {}",
+                Field::Capability { index },
+                Fault::Repeated { first }
+            ));
         }
     }
     Ok(())
@@ -193,11 +208,16 @@ fn check_written(spec: &ObjectSpec) -> Result<(), String> {
 /// # Errors
 ///
 /// Returns the first problem found: a box type name the box contract refuses
-/// (`audio_core::host::text_fault`) or one given twice, unprefixed, since the names are
-/// checked before any box; then the first problem of a box, prefixed by its name.
+/// (`audio_core::host::text_fault`) or one given twice, named by the box type's position in
+/// the registry and unprefixed, since the names are checked before any box; then the first
+/// problem of a box, prefixed by its name.
 pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
     let mut names = registry.iter().map(|spec| spec.name());
-    unique_names("box type", TextKind::BoxTypeName, &mut names)?;
+    unique_names(
+        &|index| format!("box type {index}, its name"),
+        TextKind::BoxTypeName,
+        &mut names,
+    )?;
     for spec in registry {
         check_description(spec)
             .and_then(|()| check_written(spec))

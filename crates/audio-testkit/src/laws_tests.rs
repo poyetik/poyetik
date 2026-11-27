@@ -785,19 +785,25 @@ fn names_parameters_in_binary64() {
 /// Fixtures for the description cases.
 static DUP_PORTS: [PortSpec; 2] = [PORT, PORT];
 static DUP_PARAMS: [ParamSpec; 2] = [GAIN, GAIN];
-static UNDOCUMENTED_PORT: [PortSpec; 1] = [PortSpec {
-    name: "x",
-    description: " ",
-}];
+static UNDOCUMENTED_PORT: [PortSpec; 2] = [
+    PORT,
+    PortSpec {
+        name: "x",
+        description: " ",
+    },
+];
 static EMPTY_PORT: [PortSpec; 1] = [PortSpec {
     name: "",
     description: "x",
 }];
 
-static SPACED_PORT: [PortSpec; 1] = [PortSpec {
-    name: "in ",
-    description: "x",
-}];
+static SPACED_PORT: [PortSpec; 2] = [
+    PORT,
+    PortSpec {
+        name: "in ",
+        description: "x",
+    },
+];
 static BLANK_PORT: [PortSpec; 1] = [PortSpec {
     name: " ",
     description: "x",
@@ -881,19 +887,19 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &HIDDEN_PORT, &[OUT]),
-        "inlet name \"in\\u{202e}\" holds U+202E",
+        "inlet 0, its name \"in\\u{202e}\" holds U+202E",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &LINES_PORT),
-        "outlet \"x\": its description text \"a\\nb\" holds U+000A",
+        "outlet 0, its description text \"a\\nb\" holds U+000A",
     ),
     (
         good::<HiddenParam, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "parameter name \"g\\u{feff}ain\" holds U+FEFF",
+        "parameter 0, its name \"g\\u{feff}ain\" holds U+FEFF",
     ),
     (
         good::<SeparatedParam, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "parameter \"gain\": its description text \"\\u{2028}\" holds U+2028",
+        "parameter 0, its description text \"\\u{2028}\" holds U+2028",
     ),
     (
         good::<Good, 1>("", GAIN_DESCRIPTION, &[PORT], &[OUT]),
@@ -909,11 +915,11 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &SPACED_PORT, &[OUT]),
-        "inlet name \"in \" starts or ends with a space, or holds two in a row",
+        "inlet 1, its name \"in \" starts or ends with a space, or holds two in a row",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &BLANK_PORT),
-        "outlet name is blank",
+        "outlet 0, its name is blank",
     ),
     (
         ObjectSpec::new::<Good, 1>(
@@ -924,7 +930,7 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
             &[Capability::AudioOutput, Capability::AudioOutput],
             AlgorithmVersion::FIRST,
         ),
-        "duplicate capability AudioOutput",
+        "capability 1 AudioOutput repeats item 0 of its list",
     ),
     (
         good::<Good, 1>("gain~", "  ", &[PORT], &[OUT]),
@@ -932,31 +938,31 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &DUP_PORTS, &[OUT]),
-        "duplicate inlet \"in\"",
+        "inlet 1, its name \"in\" repeats item 0 of its list",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &DUP_PORTS),
-        "duplicate outlet \"in\"",
+        "outlet 1, its name \"in\" repeats item 0 of its list",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &EMPTY_PORT, &[OUT]),
-        "inlet name is blank",
+        "inlet 0, its name is blank",
     ),
     (
         good::<DupParams, 2>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "duplicate parameter \"gain\"",
+        "parameter 1, its name \"gain\" repeats item 0 of its list",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &UNDOCUMENTED_PORT, &[OUT]),
-        "inlet \"x\": its description text is blank",
+        "inlet 1, its description text is blank",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &UNDOCUMENTED_PORT),
-        "outlet \"x\": its description text is blank",
+        "outlet 1, its description text is blank",
     ),
     (
         good::<Undescribed, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "parameter \"gain\": its description text is blank",
+        "parameter 0, its description text is blank",
     ),
 ];
 
@@ -994,14 +1000,14 @@ fn checks_a_registry() {
     assert_eq!(check_registry(&[]), Ok(()), "empty registry");
     assert_eq!(
         check_registry(&[&GOOD, &GOOD]),
-        Err("duplicate box type \"gain~\"".to_owned()),
+        Err("box type 1, its name \"gain~\" repeats item 0 of its list".to_owned()),
         "unique names"
     );
     // A name a port could have, but not a box type.
     let spaced = good::<Good, 1>("a b", GAIN_DESCRIPTION, &[PORT], &[OUT]);
     assert_eq!(
         check_registry(&[&GOOD, &spaced]),
-        Err("box type name \"a b\" holds a space".to_owned()),
+        Err("box type 1, its name \"a b\" holds a space".to_owned()),
         "each name checked as a box type's, before every box"
     );
     let bad = good::<Good, 1>("other~", "", &[PORT], &[OUT]);
