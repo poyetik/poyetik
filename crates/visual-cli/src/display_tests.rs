@@ -260,7 +260,7 @@ const fn no_display(size: ImageSize) -> Result<DisplayImage, VisualError> {
 #[test]
 fn refuses_a_corpus_whose_image_or_display_image_the_memory_cannot_hold() {
     let pixels = [[0.5; 4]; 3];
-    let size = ImageSize::new(3, 1).expect("a size");
+    let size = ImageSize::new(3, 1).expect("a valid size");
     assert_eq!(
         display_text_with(&pixels, no_image, DisplayImage::try_new),
         Err(out_of_memory(size, Holding::Image)),
@@ -276,7 +276,7 @@ fn refuses_a_corpus_whose_image_or_display_image_the_memory_cannot_hold() {
 #[test]
 fn refuses_a_display_image_of_another_size_than_the_corpus() {
     // A display image of one pixel for a corpus of three: the encoding refuses it.
-    let one = |_size| DisplayImage::try_new(ImageSize::new(1, 1).expect("a size"));
+    let one = |_size| DisplayImage::try_new(ImageSize::new(1, 1).expect("a valid size"));
     assert_eq!(
         display_text_with(&[[0.5; 4]; 3], Image::try_new, one),
         Err(VisualError::DisplaySizeMismatch {

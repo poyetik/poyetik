@@ -1157,7 +1157,8 @@ fn doc_lines(token: &Token, after: &[Token]) -> Option<Vec<(usize, String)>> {
         );
     }
     let bang = usize::from(after.first()?.is_punct('!'));
-    // At most the one token `after` holds: the rest is a slice, maybe empty.
+    // `bang` is 0 or 1, and `after` holds at least one token (its first is read above): the
+    // rest is a slice, maybe empty.
     let rest = after.get(bang..).unwrap_or_default();
     match rest {
         [open, name, equals, literal, ..]

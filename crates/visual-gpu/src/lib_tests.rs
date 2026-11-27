@@ -1351,7 +1351,11 @@ fn says_when_the_gpu_refuses_a_pass_on_an_intact_device() {
         matches!(&encoded, Err(GpuError::Refused(why)) if why.contains("maximum buffer size")),
         "encode: {encoded:?}"
     );
-    let square = square(ImageRate::new(60, 1).expect("a rate"), 39_322, (1001, 1000));
+    let square = square(
+        ImageRate::new(60, 1).expect("a valid rate"),
+        39_322,
+        (1001, 1000),
+    );
     let mut rendered = Image::try_new(size).expect("room");
     let outcome = over.render(&square, ImageIndex(0), &mut rendered);
     assert!(

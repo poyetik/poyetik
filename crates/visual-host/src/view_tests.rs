@@ -586,7 +586,7 @@ const fn refused(size: ImageSize, of: Holding) -> VisualError {
 #[test]
 fn sets_up_a_square_only_when_both_its_images_are_allocated() {
     let square = || direct().0;
-    let size = ImageSize::new(3, 2).expect("a size");
+    let size = ImageSize::new(3, 2).expect("a valid size");
     let no_image = |asked| Err(refused(asked, Holding::Image));
     let no_display = |asked| Err(refused(asked, Holding::DisplayEncoding));
     assert_eq!(

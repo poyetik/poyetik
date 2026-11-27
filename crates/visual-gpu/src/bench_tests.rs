@@ -1994,7 +1994,7 @@ fn compares_exactly_at_any_baseline() {
 #[test]
 fn allocates_the_images_it_measures_at_the_size_asked() {
     let gpu = GpuSquare::new(wgpu::Backends::all()).expect("a GPU (a software one in CI)");
-    let other = visual_core::ImageSize::new(3, 5).expect("a size");
+    let other = visual_core::ImageSize::new(3, 5).expect("a valid size");
     for size in SHOWN.into_iter().chain([CHECKED, other]) {
         assert_eq!(
             super::TimedGpu::image(&gpu, size).map(|image| image.size()),
@@ -2461,7 +2461,7 @@ fn measures_the_square_image_and_sizes_of_the_cost_benchmarks() {
     // The square measured is built of those values, and of nothing else: written out here
     // as the suite writes them, so that a body building another square fails.
     let suites = Square::new(
-        ImageRate::new(60, 1).expect("a rate"),
+        ImageRate::new(60, 1).expect("a valid rate"),
         39_322,
         Seconds::new(1001, 1000).expect("a cycle"),
     )

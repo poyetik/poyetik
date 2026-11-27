@@ -141,8 +141,8 @@ impl Message {
 impl fmt::Write for Message {
     /// Appends `piece` whole, or refuses it (and keeps what was written) when it does not fit.
     fn write_str(&mut self, piece: &str) -> fmt::Result {
-        // The bytes left after what was written, split where `piece` would end: none left
-        // when it does not fit, the one refusal.
+        // The bytes left after what was written, split where `piece` would end: a split
+        // refused when it does not fit, the one refusal.
         let left = self.bytes.get_mut(self.len..).unwrap_or_default();
         let (slot, after) = left.split_at_mut_checked(piece.len()).ok_or(fmt::Error)?;
         slot.copy_from_slice(piece.as_bytes());
