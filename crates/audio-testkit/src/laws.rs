@@ -192,7 +192,9 @@ fn check_written(spec: &ObjectSpec) -> Result<(), String> {
 ///
 /// # Errors
 ///
-/// Returns the first problem found, prefixed by the box name.
+/// Returns the first problem found: a box name the box contract refuses
+/// (`audio_core::host::text_fault`) or one given twice, unprefixed, since the names are
+/// checked before any box; then the first problem of a box, prefixed by its name.
 pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
     let mut names = registry.iter().map(|spec| spec.name());
     unique_names("box", TextKind::BoxName, &mut names)?;

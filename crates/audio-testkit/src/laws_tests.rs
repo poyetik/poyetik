@@ -996,6 +996,13 @@ fn checks_a_registry() {
         Err("duplicate box \"gain~\"".to_owned()),
         "unique names"
     );
+    // A name a port could have, but not a box type.
+    let spaced = good::<Good, 1>("a b", GAIN_DESCRIPTION, &[PORT], &[OUT]);
+    assert_eq!(
+        check_registry(&[&GOOD, &spaced]),
+        Err("box name \"a b\" holds whitespace".to_owned()),
+        "each name checked as a box type's, before every box"
+    );
     let bad = good::<Good, 1>("other~", "", &[PORT], &[OUT]);
     assert_eq!(
         check_registry(&[&GOOD, &bad]),
