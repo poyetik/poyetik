@@ -144,31 +144,36 @@ impl ParamSpec {
     /// its sign, decided from its bits), is within range. Always `false` for NaN.
     #[must_use]
     pub const fn accepts(&self, value: f64) -> bool {
-        self.holds(flush::parameter(value))
-    }
-
-    /// Whether `flushed`, a value already flushed as a plan flushes it, is within range.
-    const fn holds(&self, flushed: f64) -> bool {
-        self.minimum <= flushed && flushed <= self.maximum
+        within(value, self.minimum, self.maximum).is_some()
     }
 
     /// `picked` if this parameter's range accepts it ([`ParamSpec::accepts`]), else the
     /// default, which no range refuses, flushed as a plan flushes a value: the one rule of
     /// [`ParamValues::within`] and [`DrivenValues::within`].
     const fn kept(&self, picked: f64) -> Binary64 {
-        let value = if self.accepts(picked) {
-            picked
-        } else {
-            self.default_value
-        };
-        Binary64::new(value).as_parameter()
+        match within(picked, self.minimum, self.maximum) {
+            Some(value) => value,
+            None => Binary64::new(self.default_value).as_parameter(),
+        }
     }
 
     /// `value` flushed as a plan flushes it, if it is then within range: the one rule of
     /// [`ParamValues::of`] and [`DrivenValues::of`].
     fn checked(&self, value: Binary64) -> Option<Binary64> {
-        let flushed = value.as_parameter();
-        self.holds(flushed.raw()).then_some(flushed)
+        within(value.raw(), self.minimum, self.maximum)
+    }
+}
+
+/// `value` flushed as a plan flushes it (below 2^-126 in magnitude, a zero of its sign), if
+/// it is then within `minimum` to `maximum`: the one comparison of a value with a range, of
+/// every check of a value ([`ParamSpec::accepts`], [`ParamSpec::kept`],
+/// [`ParamSpec::checked`]) and of a default ([`range_rule`]).
+const fn within(value: f64, minimum: f64, maximum: f64) -> Option<Binary64> {
+    let flushed = flush::parameter(value);
+    if minimum <= flushed && flushed <= maximum {
+        Some(Binary64::new(flushed))
+    } else {
+        None
     }
 }
 
@@ -259,8 +264,7 @@ pub(crate) const fn range_rule(
     if infinite_width(minimum, maximum) {
         return Err(RangeRule::Width);
     }
-    let flushed = flush::parameter(default_value);
-    if minimum <= flushed && flushed <= maximum {
+    if within(default_value, minimum, maximum).is_some() {
         Ok(())
     } else {
         Err(RangeRule::Default)
