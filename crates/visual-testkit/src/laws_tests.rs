@@ -710,9 +710,9 @@ fn no_room(size: visual_core::ImageSize) -> Result<Image, visual_core::VisualErr
 /// Allocations made so far by [`image_but_the`].
 static ALLOCATIONS: AtomicU32 = AtomicU32::new(0);
 
-/// The allocation [`refuses_each_allocation_and_count_where_it_comes`] refuses, one in each
-/// pass that allocates: the third (the first pass's image of other values), one far into
-/// the pass jumping between images, and the first of the pass rendering each image alone.
+/// The allocation [`refuses_each_allocation_and_count_where_it_comes`] refuses, in turn: the
+/// third (the first pass's image of other values), one far into the pass jumping between
+/// images, and the first of the pass rendering each image alone.
 static REFUSED: AtomicU32 = AtomicU32::new(u32::MAX);
 
 /// Allocates every image but the one numbered [`REFUSED`], counted by [`ALLOCATIONS`].

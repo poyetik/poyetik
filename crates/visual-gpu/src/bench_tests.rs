@@ -2598,8 +2598,8 @@ impl super::TimedGpu for Refusing {
     ) -> Result<visual_core::Image, visual_core::VisualError> {
         // An image of one pixel when it is not refused, whatever the size asked: nothing
         // reads it (`timed_render` writes nothing), and one of each measured size, zeroed at
-        // the test profile's opt-level, would cost seconds over the runs of this test (the real images' sizes:
-        // `allocates_the_images_it_measures_at_the_size_asked`).
+        // the test profile's opt-level, would cost seconds over the runs of this test (the
+        // real images' sizes: `allocates_the_images_it_measures_at_the_size_asked`).
         match self.refuses() {
             Some(_) => Err(Self::no_room(size, visual_core::Holding::Image)),
             None => visual_core::Image::try_new(one_pixel()),
@@ -2620,8 +2620,8 @@ impl super::TimedGpu for Refusing {
 
 #[test]
 fn stops_measuring_at_whichever_call_the_gpu_refuses() {
-    // Each median: its image, then the warm-up and the measured renders, all measured (1 µs
-    // each); the encoding's: its image, an untimed render, its display image, then the
+    // Each median: its image, then the warm-up and the measured renders, all measured (each
+    // as many µs as the calls before it); the encoding's: its image, an untimed render, its display image, then the
     // warm-up and the measured encodings.
     let median = 1 + super::WARM_UP + REPEATS;
     let encoding = 3 + super::WARM_UP + REPEATS;
