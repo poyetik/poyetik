@@ -2516,7 +2516,8 @@ fn reads_the_cost_benchmarks_only_as_they_are_written() {
 
 /// A GPU whose every call is counted and the one numbered `fails` refused: a render or an
 /// encoding with the GPU's refusal naming the call, an allocation as a memory that cannot
-/// hold it. Every other render or encoding takes 1 µs by its clock.
+/// hold it. Every other render or encoding takes as many microseconds as the calls made
+/// before it, so that each median is its own.
 #[derive(Debug)]
 struct Refusing {
     /// Whether it has a clock its programs can read.
@@ -2535,11 +2536,17 @@ impl Refusing {
         (call == self.fails).then_some(call)
     }
 
-    /// A render or an encoding: refused, or 1 µs.
+    /// A render or an encoding: refused, or as many microseconds as the calls before it.
     fn timed(&self) -> Result<Option<f64>, crate::GpuError> {
-        self.refuses().map_or(Ok(Some(1000.0)), |call| {
-            Err(crate::GpuError::Refused(format!("call {call}")))
-        })
+        let call = self.calls.get();
+        self.refuses().map_or_else(
+            || {
+                Ok(Some(
+                    f64::from(u32::try_from(call).expect("a call within u32")) * 1_000.0_f64,
+                ))
+            },
+            |refused| Err(crate::GpuError::Refused(format!("call {refused}"))),
+        )
     }
 
     /// The error of an allocation of `size` refused.
@@ -2656,16 +2663,21 @@ fn stops_measuring_at_whichever_call_the_gpu_refuses() {
         fails: calls,
         calls: core::cell::Cell::new(0),
     };
-    let measured = timing(1000, REPEATS);
+    // Each median the middle of its 15 measured calls, a call taking as many microseconds as
+    // the calls before it: a median's calls are its image (call 0 of 31), 15 to warm up
+    // (1 to 15) and 15 measured (16 to 30), its median call 23, at 0, 31, 62 and 93; the
+    // encoding's, from call 124, its image, a render and its display image (124 to 126),
+    // 15 to warm up (127 to 141), 15 measured (142 to 156), its median call 149.
+    let at = |microseconds: u64| timing(microseconds * 1000, REPEATS);
     assert_eq!(
         measure(&whole).map_err(|error| error.to_string()),
         Ok(Times {
             adapter: "refusing (test)".to_owned(),
-            checked: measured,
-            shown: [measured; 3],
-            display: measured,
+            checked: at(23),
+            shown: [at(54), at(85), at(116)],
+            display: at(149),
         }),
-        "no call refused: every time measured, 1 µs each"
+        "no call refused: each time measured, each its own"
     );
     assert_eq!(whole.calls.get(), calls, "every call made once");
     // Without a clock: refused at once, before any call.
