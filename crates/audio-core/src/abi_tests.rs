@@ -582,7 +582,7 @@ fn refuses_a_copy_that_is_not_the_runs_leaving_both_sides() {
             2,
             191,
             CopyError::ShorterMemory {
-                bytes: 191,
+                memory: 191,
                 end: 192,
             },
         ),
@@ -591,7 +591,7 @@ fn refuses_a_copy_that_is_not_the_runs_leaving_both_sides() {
             2,
             64,
             CopyError::ShorterMemory {
-                bytes: 64,
+                memory: 64,
                 end: 128,
             },
         ),
@@ -663,7 +663,10 @@ fn says_why_a_copy_is_refused() {
             "a copy of 3 frames, outside 1 to the 2 frames of its run of buffers",
         ),
         (
-            CopyError::ShorterMemory { bytes: 9, end: 128 },
+            CopyError::ShorterMemory {
+                memory: 9,
+                end: 128,
+            },
             "a buffer ends before byte 128, beyond a memory of 9 bytes",
         ),
     ] {

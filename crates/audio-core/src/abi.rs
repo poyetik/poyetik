@@ -588,10 +588,10 @@ fn bytes_held(length: usize) -> u64 {
     u64::try_from(length).unwrap_or(u64::MAX)
 }
 
-/// The refusal of a memory of `bytes` bytes for a buffer that ends before byte `end`.
-fn shorter(bytes: u64, end: usize) -> CopyError {
+/// The refusal of a memory of `memory` bytes for a buffer that ends before byte `end`.
+fn shorter(memory: u64, end: usize) -> CopyError {
     CopyError::ShorterMemory {
-        bytes,
+        memory,
         end: bytes_held(end),
     }
 }
@@ -624,8 +624,8 @@ pub enum CopyError {
     /// The memory given does not hold the buffer: another memory than the run's, or a part
     /// of it.
     ShorterMemory {
-        /// Its bytes.
-        bytes: u64,
+        /// The bytes of the memory.
+        memory: u64,
         /// The byte the buffer, its padding included, ends before.
         end: u64,
     },
@@ -641,9 +641,9 @@ impl fmt::Display for CopyError {
                 f,
                 "a copy of {given} frames, outside 1 to the {span} frames of its run of buffers"
             ),
-            Self::ShorterMemory { bytes, end } => write!(
+            Self::ShorterMemory { memory, end } => write!(
                 f,
-                "a buffer ends before byte {end}, beyond a memory of {bytes} bytes"
+                "a buffer ends before byte {end}, beyond a memory of {memory} bytes"
             ),
         }
     }
