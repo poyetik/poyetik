@@ -1,6 +1,6 @@
 //! The citation gate: every roadmap step a versioned file cites exists on the board.
 
-use alloc::collections::BTreeMap;
+use alloc::collections::{BTreeMap, BTreeSet};
 use core::ops::Range;
 
 use crate::{
@@ -224,41 +224,79 @@ pub(crate) fn line_citations(line: &str, released: bool) -> (Vec<Cited>, Vec<(us
     (cited, problems)
 }
 
-/// The specifications written in sections (`## N. Title`), each cited as `section N`,
-/// never by decision, the word of [`DECIDED_SPEC`].
-pub(crate) const SECTIONED_SPECS: [&str; 2] = ["spec/box-contract.md", "spec/visual-design.md"];
-
 /// The specification written in decisions, which a sectioned one cites by decision.
 pub(crate) const DECIDED_SPEC: &str = "engine-design.md";
+
+/// The specifications written in sections among `sources` (path and text), each cited as
+/// `section N`, never by decision, the word of [`DECIDED_SPEC`]: every `spec/*.md` file but
+/// [`DECIDED_SPEC`] that holds a heading `## N.` (`## ` then a number and a dot). Read from
+/// the files, so that a specification is held from its first numbered section, without a
+/// list to keep.
+pub(crate) fn sectioned_specs(sources: &[(String, String)]) -> BTreeSet<&str> {
+    sources
+        .iter()
+        .filter(|(path, text)| {
+            path.strip_prefix("spec/").is_some_and(|name| {
+                std::path::Path::new(name)
+                    .extension()
+                    .is_some_and(|extension| extension == "md")
+                    && name != DECIDED_SPEC
+            }) && text.lines().any(numbered_heading)
+        })
+        .map(|(path, _)| path.as_str())
+        .collect()
+}
+
+/// Whether `line` is a heading of a numbered section: `## `, a number, then a dot.
+fn numbered_heading(line: &str) -> bool {
+    line.strip_prefix("## ").is_some_and(|rest| {
+        let after = rest.trim_start_matches(|digit: char| digit.is_ascii_digit());
+        after.len() < rest.len() && after.starts_with('.')
+    })
+}
 
 /// What may stand between a document's name and the part of it cited: code and link marks,
 /// a comma, spaces.
 pub(crate) const CITATION_MARKS: [char; 5] = ['`', ')', ']', ',', ' '];
 
-/// The specification of [`SECTIONED_SPECS`] that `line`, of the file at `path`, cites by
-/// decision, with the offset in `line` of the word `decision`: `decision N` right after its
-/// name, or, in the specification itself, any `decision N` not right after
-/// [`DECIDED_SPEC`]'s name.
-pub(crate) fn decision_of_a_section(path: &str, line: &str) -> Option<(usize, &'static str)> {
-    SECTIONED_SPECS.into_iter().find_map(|spec| {
-        let name = spec.rsplit_once('/').map_or(spec, |(_, name)| name);
-        line.match_indices("decision ").find_map(|(at, word)| {
-            let numbered = line
-                .get(at.saturating_add(word.len())..)
-                .unwrap_or_default()
-                .starts_with(|digit: char| digit.is_ascii_digit());
-            let cited = line
-                .get(..at)
-                .unwrap_or_default()
-                .trim_end_matches(CITATION_MARKS);
-            (numbered
-                && if path == spec {
-                    !cited.ends_with(DECIDED_SPEC)
-                } else {
-                    cited.ends_with(name)
-                })
-            .then_some((at, spec))
-        })
+/// The specification of `sectioned` ([`sectioned_specs`]) that `line`, of the file at
+/// `path`, cites by decision, with the offset in `line` of the word: `decision N` or
+/// `decisions N`, in any case (`Decision N`), right after that specification's name, from
+/// any file; or, in a sectioned specification itself, not right after the name of another
+/// one nor of [`DECIDED_SPEC`], that specification. A word that no number follows ("design
+/// decisions") cites nothing.
+pub(crate) fn decision_of_a_section<'spec>(
+    path: &str,
+    line: &str,
+    sectioned: &BTreeSet<&'spec str>,
+) -> Option<(usize, &'spec str)> {
+    let lower = line.to_ascii_lowercase();
+    lower.match_indices("decision").find_map(|(at, word)| {
+        let after = lower
+            .get(at.saturating_add(word.len())..)
+            .unwrap_or_default();
+        let numbered = after
+            .strip_prefix('s')
+            .unwrap_or(after)
+            .strip_prefix(' ')
+            .is_some_and(|rest| rest.starts_with(|digit: char| digit.is_ascii_digit()));
+        let cited = line
+            .get(..at)
+            .unwrap_or_default()
+            .trim_end_matches(CITATION_MARKS);
+        let named =
+            |spec: &str| cited.ends_with(spec.rsplit_once('/').map_or(spec, |(_, name)| name));
+        let spec = sectioned
+            .iter()
+            .copied()
+            .find(|spec| named(spec))
+            .or_else(|| {
+                sectioned
+                    .get(path)
+                    .copied()
+                    .filter(|_| !cited.ends_with(DECIDED_SPEC))
+            });
+        spec.filter(|_| numbered).map(|spec| (at, spec))
     })
 }
 
@@ -323,8 +361,7 @@ pub(crate) fn named_as_work(line: &str, rest: &str) -> bool {
 /// is not blank (code, or code and a comment), alone; each as its lines with their index.
 pub(crate) fn citation_units<'a>(path: &str, text: &'a str) -> Vec<Vec<(usize, &'a str)>> {
     let mut units = paragraphs(path, text);
-    let read: alloc::collections::BTreeSet<usize> =
-        units.iter().flatten().map(|(index, _)| *index).collect();
+    let read: BTreeSet<usize> = units.iter().flatten().map(|(index, _)| *index).collect();
     units.extend(
         text.lines()
             .enumerate()
@@ -384,8 +421,8 @@ pub(crate) fn done_as_to_come(
 /// its work is to come ("not yet", "to come", "until", "later", "will"), the sentence read
 /// whole over the lines its paragraph or comment wraps it on (a blank line, a list item,
 /// a heading or a change of comment kind ending a paragraph), not one line
-/// at a time. A specification written in sections (`SECTIONED_SPECS`) is never cited
-/// by decision, the word of the audio design's parts. A step is cited by its number, so a
+/// at a time. A specification written in sections (`sectioned_specs`) is never
+/// cited by decision, the word of the audio design's parts, in any case or number. A step is cited by its number, so a
 /// step or a card the board does not have means the citation is stale or wrong. A card
 /// written `#N` alone names no work and is not read: it is how tests and the board name
 /// cards.
@@ -402,6 +439,7 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
         .map(|(_, text)| text.as_str())
         .ok_or_else(|| Failure::from(format!("cannot read the roadmap board {ROADMAP_BOARD}")))?;
     let steps = board_steps(board)?;
+    let sectioned = sectioned_specs(sources);
     let mut problems = Vec::new();
     for (path, text) in sources {
         // A citation is read whole, over the lines its paragraph or comment wraps it on,
@@ -418,7 +456,7 @@ pub fn citation_gate(sources: &[(String, String)]) -> Result<(), Failure> {
                     .into_iter()
                     .map(|(offset, problem)| format!("{}: {problem}", at(offset))),
             );
-            if let Some((offset, spec)) = decision_of_a_section(path, &words) {
+            if let Some((offset, spec)) = decision_of_a_section(path, &words, &sectioned) {
                 problems.push(format!(
                     "{}: cites {spec} by decision: its parts are sections, write `section N`",
                     at(offset)

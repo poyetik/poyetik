@@ -2412,6 +2412,13 @@ pub(crate) fn tracked_in_fake(key: &str) -> bool {
         && key != "COMMIT_EDITMSG"
 }
 
+/// The two specifications of the tree written in sections, as the citation gate finds them
+/// ([`super::citations::sectioned_specs`]): each its path and a numbered heading.
+pub(crate) fn sectioned_sources() -> [(String, String); 2] {
+    ["spec/visual-design.md", "spec/box-contract.md"]
+        .map(|path| (path.to_owned(), "## 1. A section\n".to_owned()))
+}
+
 /// A board of two cards: #12 of three steps, #3 of one.
 pub(crate) const BOARD: &str =
     r#"{"version":1,"cards":[{"id":12,"tasks":[{},{},{}]},{"id":3,"tasks":[{"title":"x"}]}]}"#;

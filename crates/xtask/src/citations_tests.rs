@@ -318,16 +318,26 @@ fn refuses_a_done_step_cited_as_work_to_come() {
     );
 }
 
-/// The citation gate on the board of [`cite_with_done`], with one file at `path` holding
-/// `text`.
+/// The citation gate on the board of [`cite_with_done`] and the specifications written in
+/// sections ([`crate::tests::sectioned_sources`]), with one file at `path` holding `text`.
 fn cite_in(path: &str, text: &str) -> Result<(), crate::Failure> {
-    crate::citation_gate(&[
-        (
-            crate::ROADMAP_BOARD.to_owned(),
-            r#"{"cards":[{"id":12,"tasks":[{"done":true},{"done":false},{}]}]}"#.to_owned(),
-        ),
-        (path.to_owned(), text.to_owned()),
-    ])
+    cite_among(&[(path, text)])
+}
+
+/// The citation gate on the board of [`cite_with_done`], the specifications written in
+/// sections ([`crate::tests::sectioned_sources`]) and `files`, each its path and text.
+fn cite_among(files: &[(&str, &str)]) -> Result<(), crate::Failure> {
+    let mut sources = vec![(
+        crate::ROADMAP_BOARD.to_owned(),
+        r#"{"cards":[{"id":12,"tasks":[{"done":true},{"done":false},{}]}]}"#.to_owned(),
+    )];
+    sources.extend(crate::tests::sectioned_sources());
+    sources.extend(
+        files
+            .iter()
+            .map(|(path, text)| ((*path).to_owned(), (*text).to_owned())),
+    );
+    crate::citation_gate(&sources)
 }
 
 #[test]
@@ -530,6 +540,13 @@ fn refuses_a_sectioned_specification_cited_by_decision() {
         ("x.md", "As `spec/BC`, decision 5, says."),
         ("x.rs", "// (spec/BC, decision 25)"),
         ("spec/box-contract.md", "A zero there (decision 5)."),
+        // Finding D17-4 of the third deep review of #12 block 3: the gate read "decision "
+        // alone, so a plural or a capital escaped it.
+        ("x.md", "As `spec/VD`, decisions 1 and 2, say."),
+        ("x.md", "As `spec/VD`, Decision 1, says."),
+        ("x.rs", "// (spec/BC, DECISIONS 2 and 5)"),
+        ("spec/box-contract.md", "A zero there (Decision 5)."),
+        ("spec/visual-design.md", "As decisions 3 and 4 say."),
     ] {
         let text = &named(text);
         assert_eq!(
@@ -538,6 +555,16 @@ fn refuses_a_sectioned_specification_cited_by_decision() {
             "{text}"
         );
     }
+    // Finding D17-5 of the third deep review of #12 block 3: a sectioned specification citing
+    // another by decision was refused under its own name.
+    assert_eq!(
+        cite_in("spec/box-contract.md", &named("As `VD`, decision 3, says.")),
+        crate::tests::failed(
+            "spec/box-contract.md:1: cites spec/visual-design.md by decision: its parts are \
+             sections, write `section N`"
+        ),
+        "the specification it names, from another sectioned one"
+    );
     for (path, text) in [
         ("x.md", "As `spec/VD`, section 1, says."),
         ("x.md", "As `spec/VD`, decision makers say."),
@@ -554,10 +581,72 @@ fn refuses_a_sectioned_specification_cited_by_decision() {
         ),
         ("x.md", "As `spec/BC`, section 4, says."),
         ("spec/box-contract.md", "A zero there (`ED`, decision 5)."),
+        (
+            "spec/box-contract.md",
+            "A zero there (`ED`, Decisions 5 and 11).",
+        ),
+        ("x.md", "As `spec/VD`, decisions of the past say."),
+        ("x.md", "As `spec/VD`, decisions."),
+        ("x.md", "As `spec/VD`, decisionss 2."),
     ] {
         let text = &named(text);
         assert_eq!(cite_in(path, text), Ok(()), "{path}: {text}");
     }
+}
+
+#[test]
+fn finds_the_sectioned_specifications_by_their_numbered_headings() {
+    // Finding D17-3 of the third deep review of #12 block 3: the sectioned specifications
+    // were a list kept by hand, which the box contract joined three days after its first
+    // numbered section. Every one is read from its numbered headings.
+    let part = |text: &str| {
+        cite_among(&[
+            ("spec/new-part.md", text),
+            ("x.md", "As `spec/new-part.md`, decision 2, says."),
+        ])
+    };
+    assert_eq!(
+        part("## 1. A part\n\nAs decision 2 says.\n"),
+        Err(crate::Failure {
+            summary: "2 problems, listed above".to_owned(),
+            details: ["spec/new-part.md:3", "x.md:1"]
+                .map(|at| {
+                    format!(
+                        "{at}: cites spec/new-part.md by decision: its parts are sections, \
+                         write `section N`"
+                    )
+                })
+                .into(),
+            usage: false,
+        }),
+        "a new specification of numbered sections, in itself and from another file"
+    );
+    for text in [
+        "# A part\n\nAs decision 2 says.\n",
+        "## A part\n\nAs decision 2 says.\n",
+        "## 1 A part\n\nAs decision 2 says.\n",
+        "### 1. A part\n\nAs decision 2 says.\n",
+        "## . A part\n\nAs decision 2 says.\n",
+    ] {
+        assert_eq!(part(text), Ok(()), "no numbered section: {text}");
+    }
+    assert_eq!(
+        cite_among(&[(
+            "spec/engine-design.md",
+            "## 1. Host independence\n\nAs decision 2 says.\n"
+        )]),
+        Ok(()),
+        "the specification written in decisions"
+    );
+    assert_eq!(
+        cite_among(&[
+            ("spec/x/new-part.txt", "## 1. A part\n"),
+            ("docs/new-part.md", "## 1. A part\n"),
+            ("x.md", "As `new-part.md`, decision 2, says.")
+        ]),
+        Ok(()),
+        "numbered sections outside a Markdown file of the specifications"
+    );
 }
 
 #[test]

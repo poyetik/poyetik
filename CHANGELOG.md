@@ -25,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The citation gate reads a bare "decision N" of the box contract, `spec/box-contract.md`, as a decision of `spec/engine-design.md`, as it reads the visual design's (`SECTIONED_SPECS`): the box contract is written in sections and cites the engine's decisions.
+- The citation gate reads a bare "decision N" of every specification written in sections, found from the sources (every `spec/*.md` but the engine's design holding a heading `## N.`, `sectioned_specs`) where a list kept by hand missed the box contract, `spec/box-contract.md`, as a decision of `spec/engine-design.md`; it reads "decision N" and "decisions N" in any case, where the plural and a capital passed, and names the specification cited before the file's own, so that a sectioned specification citing another by decision is refused under the name it cites.
 - `breaking_names_gate` reads no name in the tag of a breaking entry (`**Breaking (<part>):**`, up to its `):**`, a part holding parentheses included): a part, whose name every version holds, passed the gate whatever the entry broke; `breaking_spellings_gate` accepts a breaking entry only in that form or as `**Breaking:**`, so that no other spelling of the tag (no space or two before the part, the bold closed before the colon) has its part read as names.
 - `unviable_names_gate` accepts as the test that kills an unviable mutant's viable variant only a test of the mutated crate, among the tests cargo-mutants runs for it: a test of another crate, which never runs against the mutant, passed it.
 

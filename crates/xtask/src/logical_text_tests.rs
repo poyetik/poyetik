@@ -321,13 +321,13 @@ fn citation_fixtures() -> Vec<(&'static str, &'static str)> {
 
 /// The citation gate on one file, with a board of card 12 of three steps, the first done.
 fn citation_text_gate(path: &str, text: &str) -> Result<(), crate::Failure> {
-    crate::citation_gate(&[
-        (
-            crate::ROADMAP_BOARD.to_owned(),
-            r#"{"cards":[{"id":12,"tasks":[{"done":true},{"done":false},{}]}]}"#.to_owned(),
-        ),
-        (path.to_owned(), text.to_owned()),
-    ])
+    let mut sources = vec![(
+        crate::ROADMAP_BOARD.to_owned(),
+        r#"{"cards":[{"id":12,"tasks":[{"done":true},{"done":false},{}]}]}"#.to_owned(),
+    )];
+    sources.extend(crate::tests::sectioned_sources());
+    sources.push((path.to_owned(), text.to_owned()));
+    crate::citation_gate(&sources)
 }
 
 /// The list counts gate on one file, beside a source declaring `PAIR` and a register.
