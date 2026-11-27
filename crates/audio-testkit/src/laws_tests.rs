@@ -830,6 +830,22 @@ box_type!(
     |_, _| Fixture::Gain(1.0)
 );
 box_type!(
+    TinyDefault,
+    &[audio_core::param!("gain", "x", 1e-45, 0.0, 1.0)],
+    |_, _| Fixture::Gain(1.0)
+);
+box_type!(
+    NormalDefault,
+    &[audio_core::param!(
+        "gain",
+        "x",
+        1.175_494_350_823_356_6e-38,
+        0.0,
+        1.0
+    )],
+    |_, _| Fixture::Gain(1.0)
+);
+box_type!(
     FineMinimum,
     &[audio_core::param!("gain", "x", 0.5, -0.1, 1.0)],
     |_, _| Fixture::Gain(1.0)
@@ -993,6 +1009,10 @@ fn checks_a_registry() {
             "parameter \"tone\": its default 0.1",
         ),
         (
+            good::<NormalDefault, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+            "parameter \"gain\": its default 1.1754943508233566e-38",
+        ),
+        (
             good::<FineMinimum, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
             "parameter \"gain\": its minimum -0.1",
         ),
@@ -1015,6 +1035,11 @@ fn checks_a_registry() {
             "{problem}: valid otherwise"
         );
     }
+    // A default below 2^-126 in magnitude is held as a zero, which a patch writes exactly
+    // (finding D2-n3 of the third deep review of #12 block 3): 2^-126 (1 + 2^-40) above is
+    // not a binary32 and stays refused, being of the binade at 2^-126.
+    let tiny = good::<TinyDefault, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
+    assert_eq!(check_registry(&[&GOOD, &tiny]), Ok(()), "a flushed default");
 }
 
 #[test]

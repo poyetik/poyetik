@@ -153,16 +153,27 @@ pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
 /// reaches, and a default that is not one differs once written. Until a patch's values are
 /// binary64 (roadmap #3 step 7).
 ///
+/// A value below 2^-126 in magnitude is the zero of its sign that the engine holds in its
+/// place (a default, as `audio_core::ParamValues::defaults` flushes it; no bound is one,
+/// which `audio_core::ParamSpec::new` refuses), which a patch writes exactly: it is told
+/// by its exponent alone, as the engine tells it, so that a value of the binade at 2^-126
+/// that is not a binary32 is refused.
+///
 /// # Errors
 ///
 /// Returns the first value that is not a binary32.
 fn check_written(spec: &ObjectSpec) -> Result<(), String> {
+    let exponent = f64::INFINITY.to_bits();
+    let smallest_normal = f64::from(f32::MIN_POSITIVE).to_bits();
     for param in spec.params() {
         for (what, value) in [
             ("default", param.default_value()),
             ("minimum", param.minimum()),
             ("maximum", param.maximum()),
         ] {
+            if value.to_bits() & exponent < smallest_normal {
+                continue;
+            }
             let given = Binary64::new(value);
             if Binary32::from_binary64(given).to_binary64().bits() != given.bits() {
                 return Err(format!(
