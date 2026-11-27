@@ -583,4 +583,17 @@ fn cites_no_done_step_of_a_card_the_board_does_not_hold() {
         Vec::<String>::new(),
         "no card 13: no step of it is done"
     );
+    // The same sentence, card 13's step 1 done on the board: refused.
+    assert_eq!(
+        super::done_as_to_come(
+            "x.md",
+            &[(0, "The bound will be measured at \u{23}13 step 1.")],
+            &alloc::collections::BTreeMap::from([(12, vec![true]), (13, vec![true])]),
+        ),
+        [
+            "x.md:1: cites \u{23}13 step 1, done on the board, as work to come (`will`): cite the \
+             step that remains, or say it is done"
+        ],
+        "card 13's step 1 done"
+    );
 }
