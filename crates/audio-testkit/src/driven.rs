@@ -17,15 +17,33 @@ use crate::heap_operations_during;
 use crate::laws::{LawSample, entry, shown, unbuilt};
 use crate::matrix::{PRECISIONS, sample_rates};
 
+/// How a block of a run is rendered as the engine renders it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Body {
+    /// By the driven body.
+    Driven,
+    /// By the steady body, given its values before it.
+    Set,
+    /// By the steady body, given nothing before it: after a block of the steady body, whose
+    /// values stay, as `audio_core::Driven::set` lets a plan render it, never after a driven
+    /// block, which a set follows.
+    Kept,
+}
+
 /// Which blocks of a run are rendered by the steady body, the others by the driven one: none,
-/// every other from the first or from the second, and runs of both, so that each body follows
-/// the other and itself.
-const STEADY: [[bool; BLOCKS]; 4] = [
-    [false; BLOCKS],
-    [true, false, true, false, true, false, true, false],
-    [false, true, false, true, false, true, false, true],
-    [false, false, true, true, true, false, true, false],
-];
+/// every other from the first or from the second, runs of both, so that each body follows
+/// the other and itself, and steady blocks given no values after a steady one, so that the
+/// steady body does not need values before each block.
+const STEADY: [[Body; BLOCKS]; 5] = {
+    use Body::{Driven, Kept, Set};
+    [
+        [Driven; BLOCKS],
+        [Set, Driven, Set, Driven, Set, Driven, Set, Driven],
+        [Driven, Set, Driven, Set, Driven, Set, Driven, Set],
+        [Driven, Driven, Set, Set, Set, Driven, Set, Driven],
+        [Set, Kept, Driven, Set, Kept, Kept, Driven, Set],
+    ]
+};
 
 /// How many runs change once per block ([`Motion::Step`]): each of the [`BLOCKS`] blocks of
 /// a run changes at a frame of its own in each, so that over them every frame of a block is
@@ -138,8 +156,8 @@ fn drawn(minimum: f64, maximum: f64, state: &mut u64) -> f64 {
 
 /// One block of a run, as each body is given it.
 struct RunBlock {
-    /// Whether the steady body renders it, the driven one otherwise.
-    steady: bool,
+    /// How it is rendered as the engine renders it.
+    body: Body,
     /// The values the steady body is given before it: those of its frames, in a steady block.
     set: ParamValues,
     /// The values the reference is given before each part of `R` frames, in order.
@@ -152,8 +170,8 @@ struct RunBlock {
 struct Run {
     /// How they move.
     motion: Motion,
-    /// The blocks rendered by the steady body.
-    steady: [bool; BLOCKS],
+    /// How each block is rendered as the engine renders it.
+    steady: [Body; BLOCKS],
     /// The values the instances are created with.
     start: ParamValues,
     /// Its blocks, in order.
@@ -166,7 +184,7 @@ impl Run {
     fn new<const R: usize>(
         spec: &'static ObjectSpec,
         (motion, start): (Motion, ParamValues),
-        steady: [bool; BLOCKS],
+        steady: [Body; BLOCKS],
     ) -> Self {
         let moves = !matches!(motion, Motion::Held(_));
         let mut state = 0_u64;
@@ -174,7 +192,8 @@ impl Run {
         let mut frame = 0_usize;
         let blocks = steady
             .iter()
-            .map(|&held| {
+            .map(|&body| {
+                let held = body != Body::Driven;
                 let set = last.clone();
                 let mut frames = Vec::with_capacity(BLOCK_SIZE);
                 for _ in 0..BLOCK_SIZE {
@@ -198,7 +217,7 @@ impl Run {
                         .map_or(default, Raw::raw)
                 });
                 RunBlock {
-                    steady: held,
+                    body,
                     set,
                     parts: frames.iter().step_by(R).cloned().collect(),
                     driving,
@@ -226,11 +245,20 @@ impl Run {
 
 impl fmt::Display for Run {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let steady: Vec<usize> = (0_usize..)
-            .zip(self.steady)
-            .filter_map(|(block, steady)| steady.then_some(block))
-            .collect();
-        write!(f, "{}, steady blocks {steady:?}", self.motion)
+        let blocks = |rendered: fn(Body) -> bool| -> Vec<usize> {
+            (0_usize..)
+                .zip(self.steady)
+                .filter_map(|(block, body)| rendered(body).then_some(block))
+                .collect()
+        };
+        let steady = blocks(|body| body != Body::Driven);
+        let kept = blocks(|body| body == Body::Kept);
+        write!(f, "{}, steady blocks {steady:?}", self.motion)?;
+        if kept.is_empty() {
+            Ok(())
+        } else {
+            write!(f, ", {kept:?} given no values")
+        }
     }
 }
 
@@ -402,7 +430,8 @@ fn reference<S: LawSample, const R: usize>(
 }
 
 /// The run as the engine renders it, in blocks of [`BLOCK_SIZE`] frames: by the steady body the blocks
-/// where its values stay, given them before it, by the driven body the others. The outputs
+/// where its values stay, given them before it unless they are kept ([`Body::Kept`]), by the
+/// driven body the others. The outputs
 /// are set to a NaN before each block, which a sample left unwritten keeps. Also returns the
 /// heap operations.
 ///
@@ -423,14 +452,17 @@ fn driven<S: LawSample>(
     let mut blocks = run.blocks.iter().enumerate();
     let rendered = run_blocks(spec, input, BLOCKS, entry(), |given, outputs| {
         blocks.next().into_iter().try_for_each(|(at, block)| {
-            let render = || {
-                if block.steady {
+            let render = || match block.body {
+                Body::Set => {
                     let took = object.receive(&block.set);
                     object.process(given, outputs);
                     took
-                } else {
-                    object.run_driven(given, outputs, &block.driving)
                 }
+                Body::Kept => {
+                    object.process(given, outputs);
+                    true
+                }
+                Body::Driven => object.run_driven(given, outputs, &block.driving),
             };
             let (took, count) = heap_operations_during(render)?;
             operations = operations.saturating_add(count);
@@ -578,7 +610,8 @@ fn check_precision<S: LawSample, const R: usize>(
 ///   the other, once per block at each frame of a block, between the two zeros, each
 ///   parameter alone; with constant values alone, a body reading the first frame of each
 ///   block would pass;
-/// - **back and forth**: driven blocks, the last values set, then steady ones;
+/// - **back and forth**: driven blocks, the last values set, then steady ones, some given
+///   no values after a steady block, as a plan may render them;
 /// - **values an instance is created with**: each parameter set held, by the steady body
 ///   alone, from an instance created with it and from one created with the defaults then
 ///   given it, since the reference, given values before every block, does not see them.

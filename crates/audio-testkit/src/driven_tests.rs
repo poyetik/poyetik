@@ -87,6 +87,9 @@ const FIRST_OF_RUN: u8 = 29;
 const FIRST_EIGHT: u8 = 30;
 /// The instance refuses its values set the sixth time.
 const REFUSES_LATER: u8 = 31;
+/// The steady body restarts the phase in a block it was not given values before, nor created
+/// before.
+const STALE: u8 = 32;
 
 /// Outputs a ramp of `hertz` cycles per second, with a quarter of its input, times a gain;
 /// `CHEAT` says how it goes wrong.
@@ -101,6 +104,8 @@ struct Probe<const CHEAT: u8> {
     steadied: bool,
     /// Whether the driven body rendered the last block.
     driven: bool,
+    /// Whether it was created or given values since the steady body last rendered a block.
+    fresh: bool,
     /// The bits of the first parameter the driven body of [`CHANGE_ON_FIRST`] last took.
     first: u64,
     /// Cycles per frame.
@@ -121,6 +126,7 @@ impl<const CHEAT: u8> Probe<CHEAT> {
             separate: 0.0,
             steadied: false,
             driven: false,
+            fresh: true,
             first: hertz.raw().to_bits(),
             step: hertz.raw() / rate,
             gain: if CHEAT == CREATED_OTHERWISE {
@@ -149,6 +155,10 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Object<S, N> for Probe<CHEAT> {
     fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
         self.steadied = true;
         self.driven = false;
+        if CHEAT == STALE && !self.fresh {
+            self.phase = 0.0_f64;
+        }
+        self.fresh = false;
         for (output, input) in outputs.iter_mut().zip(inputs) {
             for (out, value) in output.iter_mut().zip(input) {
                 *out = self.frame(*value);
@@ -168,6 +178,7 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Driven<S, N, 2> for Probe<CHEAT
             self.step = hertz.raw() / self.rate;
         }
         self.gain = gain.raw();
+        self.fresh = true;
         if CHEAT == RESTARTS {
             self.phase = 0.0_f64;
         }
@@ -632,6 +643,23 @@ fn refuses_a_box_wrong_in_one_dimension_of_the_runs_only() {
                 ),
             ),
         ),
+        // Right whenever the steady body is given values before each block.
+        (
+            "a phase restarted in a block given no values",
+            laws::<STALE>(),
+            refused_at(
+                64,
+                8_000,
+                special,
+                DEFAULTS,
+                "[0, 1, 3, 4, 5, 7], [1, 4, 5] given no values",
+                &other(
+                    "0.0 (0x0) for 0.3999999999999996 (0x3fd9999999999992)",
+                    start,
+                    defaults,
+                ),
+            ),
+        ),
         (
             "the heap while taking values",
             laws::<ALLOCATES_IN_SET>(),
@@ -828,8 +856,8 @@ fn names_the_values_at_a_place() {
         outlet: 0,
         frame,
     };
-    let fine = Run::new::<1>(spec, motion(), [false; BLOCKS]);
-    let coarse = Run::new::<16>(spec, motion(), [false; BLOCKS]);
+    let fine = Run::new::<1>(spec, motion(), [super::Body::Driven; BLOCKS]);
+    let coarse = Run::new::<16>(spec, motion(), [super::Body::Driven; BLOCKS]);
     let (up, down) = ([1_000.0_f64, 0.0_f64], [0.0_f64, 1.0_f64]);
     for (frame, at_each, at_every_16) in [
         (0, up, up),
@@ -864,7 +892,13 @@ fn moves_each_parameter_as_its_motion_says() {
     use super::{Motion, Run};
     let spec = spec::<Probe<RIGHT>, 2>(&[OUT]);
     let defaults = ParamValues::defaults(spec);
-    let run = |motion: Motion| Run::new::<1>(spec, (motion, defaults.clone()), [false; BLOCKS]);
+    let run = |motion: Motion| {
+        Run::new::<1>(
+            spec,
+            (motion, defaults.clone()),
+            [super::Body::Driven; BLOCKS],
+        )
+    };
     let (top, zero) = (1_000.0_f64.to_bits(), 0.0_f64.to_bits());
     let one = 1.0_f64.to_bits();
     assert_eq!(
@@ -908,7 +942,7 @@ fn moves_each_parameter_as_its_motion_says() {
     let held = Run::new::<1>(
         spec,
         (Motion::Held(3), audio_battery::param_sets(spec)[3].clone()),
-        [false; BLOCKS],
+        [super::Body::Driven; BLOCKS],
     );
     assert_eq!(
         moved(&held, 7, 62..64),
@@ -926,7 +960,7 @@ fn steps_at_each_frame_of_a_block_once() {
     let mut frames = Vec::new();
     for first in 0..8 {
         let motion = (Motion::Step(first), ParamValues::defaults(spec));
-        let run = Run::new::<1>(spec, motion, [false; BLOCKS]);
+        let run = Run::new::<1>(spec, motion, [super::Body::Driven; BLOCKS]);
         for block in 0..8 {
             let values = moved(&run, block, 0..64);
             let changes: Vec<usize> = (1..64)
@@ -941,6 +975,33 @@ fn steps_at_each_frame_of_a_block_once() {
         }
     }
     assert_eq!(frames, (0..64).collect::<Vec<_>>(), "each frame once");
+}
+
+/// A block given no values follows a steady block, as a plan may render it: never the first
+/// block, which [`super::check_created`] holds, nor one after a driven block, which a set
+/// follows (`audio_core::Driven::set`).
+#[test]
+fn gives_no_values_only_after_a_steady_block() {
+    use super::{Body, STEADY};
+    let mut wrong = Vec::new();
+    for (pattern, bodies) in STEADY.iter().enumerate() {
+        let before = core::iter::once(None).chain(bodies.iter().map(Some));
+        for (block, (body, last)) in bodies.iter().zip(before).enumerate() {
+            if *body == Body::Kept && !matches!(last, Some(Body::Set | Body::Kept)) {
+                wrong.push((pattern, block));
+            }
+        }
+    }
+    assert_eq!(wrong, [], "a block given no values after no steady block");
+    assert_eq!(
+        STEADY
+            .iter()
+            .flatten()
+            .filter(|&&body| body == Body::Kept)
+            .count(),
+        3,
+        "the control: blocks given no values"
+    );
 }
 
 #[test]
