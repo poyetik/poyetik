@@ -606,9 +606,10 @@ fn refuses_a_breaking_entry_citing_nothing_the_last_version_has() {
         "a name only this branch added"
     );
     for tagged in [
-        "**Breaking (`audio-Engine`)**: `audio_host::Host` changed",
         "**Breaking (`audio-Engine`):** `audio_host::Host` changed",
         "**Breaking (`Engine` command line):** `audio_host::Host` changed",
+        "**Breaking (`Engine::run()` callers):** `audio_host::Host` changed",
+        "**Breaking (`Engine`, its run (and stop)):** `audio_host::Host` changed",
     ] {
         assert_eq!(
             crate::breaking_names_gate(&unreleased_with(&format!("- {tagged}.\n")), &held, at),
@@ -972,13 +973,14 @@ fn takes_two_entries_for_one_change_from_its_thresholds_on() {
 fn refuses_a_breaking_entry_spelled_otherwise_than_the_gates_read_it() {
     let refused = |line: u8| {
         format!(
-            "CHANGELOG.md:{line}: a breaking entry starts `- **Breaking`, which the gates of \
-             breaking changes read"
+            "CHANGELOG.md:{line}: a breaking entry opens `- **Breaking:**` or `- **Breaking \
+             (<part>):**`, the forms the gates of breaking changes read"
         )
     };
     assert_eq!(
         crate::breaking_spellings_gate(&unreleased_with(
             "- **Breaking:** `Released` changed.\n- **Breaking (names):** `x` renamed.\n\
+             - **Breaking (`f()` callers):** `x` renamed.\n\
              - `Breaking` is a word.\n- Breakage of a cable.\n  - **BREAKING:** inside an entry.\n\
              - The gates read the breaking entries.\n"
         )),
@@ -998,6 +1000,27 @@ fn refuses_a_breaking_entry_spelled_otherwise_than_the_gates_read_it() {
             "a mark of another wording",
         ),
         ("- `x` changed, breaking.\n", "a word at its end"),
+        (
+            "- **Breaking(`audio-core`):** `x` changed.\n",
+            "no space before its part",
+        ),
+        (
+            "- **Breaking  (`audio-core`):** `x` changed.\n",
+            "two spaces before its part",
+        ),
+        (
+            "- **Breaking (`audio-core`)**: `x` changed.\n",
+            "its bold closed before the colon",
+        ),
+        (
+            "- **Breaking**: `x` changed.\n",
+            "untagged, its bold closed first",
+        ),
+        (
+            "- **Breaking (`audio-core`) `x` changed.\n",
+            "a part never closed",
+        ),
+        ("- **Breakings:** `x` changed.\n", "another word"),
     ] {
         assert_eq!(
             crate::breaking_spellings_gate(&unreleased_with(entry)),
@@ -1235,8 +1258,9 @@ fn reports_every_gate_of_the_version_step_that_fails() {
                 "the entries of [Unreleased]: CHANGELOG.md:10: this entry and the one at line 9 \
                  describe one change (both cite 3 of the 3 code spans either cites): keep one \
                  entry per change, saying it from the last version",
-                "the breaking entries of the changelog: CHANGELOG.md:11: a breaking entry starts \
-                 `- **Breaking`, which the gates of breaking changes read",
+                "the breaking entries of the changelog: CHANGELOG.md:11: a breaking entry opens \
+                 `- **Breaking:**` or `- **Breaking (<part>):**`, the forms the gates of breaking \
+                 changes read",
             ]
             .map(str::to_owned)
             .to_vec(),

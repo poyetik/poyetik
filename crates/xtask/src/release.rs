@@ -297,14 +297,36 @@ fn cited_names(entry: &str) -> Vec<String> {
     names(spans(untagged(entry)))
 }
 
-/// `entry` after the part it is tagged with, if it opens as a breaking entry so tagged
-/// (`**Breaking (<part>)`), else whole: the part says where the break is, and its name, a
-/// word of every version, is none of what breaks.
+/// What closes the opening of a breaking entry that names no part: [`BREAKING_ENTRY`], then
+/// this (`**Breaking:**`).
+const UNTAGGED_CLOSE: &str = ":**";
+
+/// What opens the part a breaking entry is tagged with, after [`BREAKING_ENTRY`], and what
+/// closes it and the opening (`**Breaking (<part>):**`).
+const TAG: (&str, &str) = (" (", "):**");
+
+/// The text of `entry`, an entry's text without its bullet, after the opening of a breaking
+/// entry in one of the two forms the gates of breaking changes read, with the part it is
+/// tagged with in the second: [`BREAKING_ENTRY`] then [`UNTAGGED_CLOSE`]
+/// (`**Breaking:**`), or then the part between the two of [`TAG`] (`**Breaking (<part>):**`,
+/// closed at the first `):**`, so that a part holding a parenthesis, in a code span or not,
+/// is read whole); `None` for an entry that opens otherwise.
+fn breaking_opening(entry: &str) -> Option<(Option<&str>, &str)> {
+    let after = BREAKING_ENTRY
+        .strip_prefix("- ")
+        .and_then(|form| entry.strip_prefix(form))?;
+    if let Some(rest) = after.strip_prefix(UNTAGGED_CLOSE) {
+        return Some((None, rest));
+    }
+    let (part, rest) = after.strip_prefix(TAG.0)?.split_once(TAG.1)?;
+    Some((Some(part), rest))
+}
+
+/// `entry` after the opening of a breaking entry ([`breaking_opening`]), the part it is
+/// tagged with included, else whole: the part says where the break is, and its name, a word
+/// of every version, is none of what breaks.
 fn untagged(entry: &str) -> &str {
-    entry
-        .strip_prefix("**Breaking (")
-        .and_then(|tagged| tagged.split_once(')'))
-        .map_or(entry, |(_, rest)| rest)
+    breaking_opening(entry).map_or(entry, |(_, rest)| rest)
 }
 
 /// The names `spans`, code spans, cite ([`cited_names`]).
@@ -637,15 +659,17 @@ pub fn duplicate_entries_gate(changelog: &str) -> Result<(), Failure> {
     verdict("the entries of [Unreleased]", problems)
 }
 
-/// Checks that every entry of `[Unreleased]` that says it breaks is written
-/// [`BREAKING_ENTRY`].
+/// Checks that every entry of `[Unreleased]` that says it breaks opens in one of the two
+/// forms of `breaking_opening`: [`BREAKING_ENTRY`], then `:**` or ` (<part>):**`.
 ///
-/// That is the form the gates of breaking changes read ([`breaking_names_gate`],
+/// Those are the forms the gates of breaking changes read ([`breaking_names_gate`],
 /// `breaking_bang_gate`): an entry whose first word, past any bold or italics (`*`, `_`), is
 /// "breaking" in another case or form (`- **BREAKING:**`, `- Breaking:`,
 /// `- __Breaking:__`), or that marks itself breaking at its end (`(breaking)`,
-/// `(breaking change)`, a last word "breaking"), would pass both unread. An entry under another bullet, or with no
-/// space after its bullet, is refused by [`unreleased_shape_gate`].
+/// `(breaking change)`, a last word "breaking"), would pass both unread; and one that opens
+/// [`BREAKING_ENTRY`] otherwise (`- **Breaking(<part>):**`, two spaces before its part, its
+/// bold closed after the colon) would have its part read as names it breaks. An entry under
+/// another bullet, or with no space after its bullet, is refused by [`unreleased_shape_gate`].
 ///
 /// # Errors
 ///
@@ -663,12 +687,13 @@ pub fn breaking_spellings_gate(changelog: &str) -> Result<(), Failure> {
                     .trim_end()
                     .trim_end_matches(['.', ')'])
                     .ends_with("breaking");
-            (first || marked) && !breaking(entry)
+            (first || marked) && breaking_opening(entry).is_none()
         })
         .map(|(line, _)| {
             format!(
-                "{CHANGELOG}:{line}: a breaking entry starts `{BREAKING_ENTRY}`, which the gates \
-                 of breaking changes read"
+                "{CHANGELOG}:{line}: a breaking entry opens `{BREAKING_ENTRY}{UNTAGGED_CLOSE}` \
+                 or `{BREAKING_ENTRY}{}<part>{}`, the forms the gates of breaking changes read",
+                TAG.0, TAG.1
             )
         })
         .collect();
