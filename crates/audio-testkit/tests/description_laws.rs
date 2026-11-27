@@ -269,7 +269,7 @@ mod tests {
             Fault::NotUtf8 => "not UTF-8",
             Fault::Blank => "blank",
             Fault::Character(_) => "character",
-            Fault::Whitespace => "whitespace",
+            Fault::Space => "space",
             Fault::Spaces => "spaces",
             Fault::Repeated { .. } => "repeated",
             Fault::Range {
@@ -383,12 +383,12 @@ mod tests {
                 "repeated",
                 "reserved",
                 "reversed",
+                "space",
                 "spaces",
                 "too many",
                 "trailing",
                 "truncated",
                 "unreachable",
-                "whitespace",
                 "zero",
             ],
             "every fault but a description too long and a width not finite"

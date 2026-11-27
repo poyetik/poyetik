@@ -901,7 +901,7 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
     ),
     (
         good::<Good, 1>("two words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "box type name \"two words\" holds whitespace",
+        "box type name \"two words\" holds a space",
     ),
     (
         good::<Good, 1>("two\u{a0}words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
@@ -1001,7 +1001,7 @@ fn checks_a_registry() {
     let spaced = good::<Good, 1>("a b", GAIN_DESCRIPTION, &[PORT], &[OUT]);
     assert_eq!(
         check_registry(&[&GOOD, &spaced]),
-        Err("box type name \"a b\" holds whitespace".to_owned()),
+        Err("box type name \"a b\" holds a space".to_owned()),
         "each name checked as a box type's, before every box"
     );
     let bad = good::<Good, 1>("other~", "", &[PORT], &[OUT]);

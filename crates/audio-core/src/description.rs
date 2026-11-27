@@ -53,7 +53,7 @@ pub enum TextKind {
 ///   outside those (U+FFF9 to U+FFFB, U+13430 to U+13438);
 /// - [`Fault::Blank`], a text that shows nothing: empty, or whitespace, default-ignorable
 ///   code points, U+2800 and those format characters alone;
-/// - [`Fault::Whitespace`], U+0020 in the name of a box type;
+/// - [`Fault::Space`], U+0020 in the name of a box type;
 /// - [`Fault::Spaces`], U+0020 at the start or the end of the name of a port or a parameter,
 ///   or after another, where it shows nothing or little.
 #[must_use]
@@ -67,7 +67,7 @@ pub fn text_fault(text: &str, kind: TextKind) -> Option<Fault> {
         .map(Fault::Character)
         .or_else(|| text.chars().all(shows_nothing).then_some(Fault::Blank))
         .or_else(|| match kind {
-            TextKind::BoxTypeName => text.contains(' ').then_some(Fault::Whitespace),
+            TextKind::BoxTypeName => text.contains(' ').then_some(Fault::Space),
             TextKind::Name => (text.starts_with(' ') || text.ends_with(' ') || text.contains("  "))
                 .then_some(Fault::Spaces),
             TextKind::DescriptionText => None,
@@ -725,8 +725,8 @@ pub enum Fault {
     Blank,
     /// A text holding a character it may not ([`text_fault`]).
     Character(char),
-    /// Whitespace in the name of the box type.
-    Whitespace,
+    /// U+0020 in the name of the box type, which a patch writes as one word.
+    Space,
     /// U+0020 at the start or the end of the name of a port or a parameter, or after another.
     Spaces,
     /// The name of an item, or a capability, that an earlier item of its list has.
@@ -773,7 +773,7 @@ impl fmt::Display for Fault {
             Self::Character(character) => {
                 write!(f, "holds U+{:04X}", u32::from(character))
             }
-            Self::Whitespace => f.write_str("holds whitespace"),
+            Self::Space => f.write_str("holds a space"),
             Self::Spaces => f.write_str("starts or ends with a space, or holds two in a row"),
             Self::Repeated { first } => write!(f, "repeats item {first} of its list"),
             Self::Range {
