@@ -7,8 +7,9 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::{
-    AlgorithmVersion, BoxInstance, Capability, Create, Dispatch, Driven, DrivenValues, Object,
-    ObjectSpec, ParamError, ParamSpec, ParamSpecError, ParamValues, PortSpec, Typed,
+    AlgorithmVersion, BoxInstance, Capability, Create, Dispatch, Driven, DrivenValues, Driving,
+    Object, ObjectSpec, ParamError, ParamSpec, ParamSpecError, ParamValues, PortSpec, Typed,
+    Values,
 };
 use crate::host::{ParamBounds, Raw as _};
 use crate::{Binary32, Binary64, Block, Sample, SampleRate};
@@ -170,7 +171,7 @@ macro_rules! mute {
 
             fn create<S: Sample, const N: usize>(
                 _rate: SampleRate,
-                _params: [Binary64; $count],
+                _params: Values<$count>,
             ) -> impl Driven<S, N, $count> + 'static {
                 Self
             }
@@ -183,13 +184,13 @@ macro_rules! mute {
 macro_rules! mute_driven {
     ($name:ident, $count:literal) => {
         impl<S: Sample, const N: usize> Driven<S, N, $count> for $name {
-            fn set(&mut self, _params: [Binary64; $count]) {}
+            fn set(&mut self, _params: Values<$count>) {}
 
             fn process_driven(
                 &mut self,
                 _inputs: &[Block<S, N>],
                 _outputs: &mut [Block<S, N>],
-                _params: &[Block<Binary64, N>; $count],
+                _params: Driving<'_, N, $count>,
             ) {
             }
         }
@@ -1011,7 +1012,8 @@ impl<S: Sample, const N: usize> Object<S, N> for Told {
 }
 
 impl<S: Sample, const N: usize> Driven<S, N, 1> for Told {
-    fn set(&mut self, [value]: [Binary64; 1]) {
+    fn set(&mut self, values: Values<1>) {
+        let [value] = values.get();
         let [held, _rate] = &mut self.0;
         *held = value.raw();
     }
@@ -1021,8 +1023,9 @@ impl<S: Sample, const N: usize> Driven<S, N, 1> for Told {
         &mut self,
         _inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        [values]: &[Block<Binary64, N>; 1],
+        driving: Driving<'_, N, 1>,
     ) {
+        let [values] = driving.blocks();
         for output in outputs {
             *output = values.map(S::from_binary64);
         }
@@ -1035,8 +1038,9 @@ impl Create<1> for Told {
 
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        [value]: [Binary64; 1],
+        values: Values<1>,
     ) -> impl Driven<S, N, 1> + 'static {
+        let [value] = values.get();
         Self([value.raw(), f64::from(rate.hz())])
     }
 }
@@ -1189,7 +1193,7 @@ impl Create<0> for Counting {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self(0.5)
     }
@@ -1339,4 +1343,13 @@ fn are_errors_of_their_own() {
         ],
         "said as they display"
     );
+}
+
+/// A spec built at run time, not a `static`, is dropped as any value is: its destructor,
+/// there only to keep a `const` spec from being promoted to a `'static` one, does nothing.
+#[test]
+fn drops_a_spec_built_at_run_time() {
+    let spec = mute::<Two, 2>("dropped~");
+    assert_eq!(spec.name, "dropped~", "the spec built");
+    drop(spec);
 }

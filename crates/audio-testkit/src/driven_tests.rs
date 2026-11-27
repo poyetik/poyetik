@@ -7,7 +7,8 @@ use audio_core::DrivenValues;
 use audio_core::host::Raw as _;
 use audio_core::{
     AlgorithmVersion, Binary32, Binary64, Block, BoxInstance, BoxMode, Create, Dispatch, Driven,
-    Object, ObjectSpec, ParamSpec, ParamValues, PortSpec, Sample, SampleRate, Typed,
+    Driving, Object, ObjectSpec, ParamSpec, ParamValues, PortSpec, Sample, SampleRate, Typed,
+    Values,
 };
 
 use super::{check_driven_laws, drawn};
@@ -112,7 +113,8 @@ struct Probe<const CHEAT: u8> {
 
 impl<const CHEAT: u8> Probe<CHEAT> {
     /// At `rate`, from its parameters.
-    fn of(rate: SampleRate, [hertz, gain]: [Binary64; 2]) -> Self {
+    fn of(rate: SampleRate, values: Values<2>) -> Self {
+        let [hertz, gain] = values.get();
         let rate = f64::from(rate.hz());
         Self {
             phase: 0.0,
@@ -156,7 +158,8 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Object<S, N> for Probe<CHEAT> {
 }
 
 impl<S: Sample, const N: usize, const CHEAT: u8> Driven<S, N, 2> for Probe<CHEAT> {
-    fn set(&mut self, [hertz, gain]: [Binary64; 2]) {
+    fn set(&mut self, values: Values<2>) {
+        let [hertz, gain] = values.get();
         if CHEAT == ALLOCATES_IN_SET {
             drop(black_box(Vec::<u8>::with_capacity(8)));
         }
@@ -174,8 +177,9 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Driven<S, N, 2> for Probe<CHEAT
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        [hertz, gains]: &[Block<Binary64, N>; 2],
+        driving: Driving<'_, N, 2>,
     ) {
+        let [hertz, gains] = driving.blocks();
         if CHEAT == IGNORES {
             self.process(inputs, outputs);
             return;
@@ -288,7 +292,7 @@ impl<const CHEAT: u8> Create<2> for Probe<CHEAT> {
 
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        params: [Binary64; 2],
+        params: Values<2>,
     ) -> impl Driven<S, N, 2> + 'static {
         Self::of(rate, params)
     }
@@ -849,7 +853,7 @@ fn moved(run: &super::Run, block: usize, frames: core::ops::Range<usize>) -> Vec
     run.blocks[block].parts[frames]
         .iter()
         .map(|values| {
-            let [hertz, gain] = values.params().array().expect("two parameters");
+            let [hertz, gain] = values.params().array().expect("two parameters").get();
             [hertz.raw().to_bits(), gain.raw().to_bits()]
         })
         .collect()
@@ -1027,7 +1031,7 @@ fn checks_nothing_without_parameters_and_refuses_parameters_without_outlet() {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Self
         }

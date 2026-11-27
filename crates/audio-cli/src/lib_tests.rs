@@ -4953,7 +4953,8 @@ impl<S: audio_core::Sample, const N: usize> audio_core::Object<S, N> for NanAt {
 }
 
 impl<S: audio_core::Sample, const N: usize> audio_core::Driven<S, N, 1> for NanAt {
-    fn set(&mut self, [frame]: [audio_core::Binary64; 1]) {
+    fn set(&mut self, values: audio_core::Values<1>) {
+        let [frame] = values.get();
         self.at = audio_core::host::Raw::raw(frame);
     }
 
@@ -4962,7 +4963,7 @@ impl<S: audio_core::Sample, const N: usize> audio_core::Driven<S, N, 1> for NanA
         &mut self,
         inputs: &[audio_core::Block<S, N>],
         outputs: &mut [audio_core::Block<S, N>],
-        _params: &[audio_core::Block<audio_core::Binary64, N>; 1],
+        _params: audio_core::Driving<'_, N, 1>,
     ) {
         audio_core::Object::process(self, inputs, outputs);
     }
@@ -4980,8 +4981,9 @@ impl audio_core::Create<1> for NanAt {
 
     fn create<S: audio_core::Sample, const N: usize>(
         _rate: SampleRate,
-        [frame]: [audio_core::Binary64; 1],
+        values: audio_core::Values<1>,
     ) -> impl audio_core::Driven<S, N, 1> + 'static {
+        let [frame] = values.get();
         let at = <audio_core::Binary64 as audio_core::host::Raw>::raw(frame);
         Self { at, next: 0 }
     }

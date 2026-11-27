@@ -5,7 +5,8 @@ use audio_core::DrivenValues;
 use audio_core::host::{Delivered, Raw};
 use audio_core::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, Create, Dispatch, Driven,
-    Object, ObjectSpec, ParamSpec, ParamValues, PortSpec, Precision, Sample, SampleRate,
+    Driving, Object, ObjectSpec, ParamSpec, ParamValues, PortSpec, Precision, Sample, SampleRate,
+    Values,
 };
 
 use core::convert::Infallible;
@@ -122,7 +123,8 @@ impl<S: Sample, const N: usize> Object<S, N> for Echo {
 }
 
 impl<S: Sample, const N: usize> Driven<S, N, 1> for Echo {
-    fn set(&mut self, [gain]: [Binary64; 1]) {
+    fn set(&mut self, values: Values<1>) {
+        let [gain] = values.get();
         self.gain = gain.raw();
     }
 
@@ -135,8 +137,9 @@ impl<S: Sample, const N: usize> Driven<S, N, 1> for Echo {
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        [gains]: &[Block<Binary64, N>; 1],
+        driving: Driving<'_, N, 1>,
     ) {
+        let [gains] = driving.blocks();
         for (output, input) in outputs.iter_mut().zip(inputs) {
             for ((out, value), &gain) in output.iter_mut().zip(input).zip(gains) {
                 *out = *value * S::from_binary64(gain);
@@ -162,8 +165,9 @@ fn echo_to(quirk: Quirk, outlets: &'static [PortSpec]) -> ObjectSpec {
 
                 fn create<S: Sample, const N: usize>(
                     rate: SampleRate,
-                    [gain]: [Binary64; 1],
+                    values: Values<1>,
                 ) -> impl Driven<S, N, 1> + 'static {
+                    let [gain] = values.get();
                     let gain = gain.raw();
                     let quirky = match $quirk {
                         Quirk::None => false,
@@ -216,8 +220,9 @@ macro_rules! gain_of {
 
             fn create<S: Sample, const N: usize>(
                 _rate: SampleRate,
-                [gain]: [Binary64; 1],
+                values: Values<1>,
             ) -> impl Driven<S, N, 1> + 'static {
+                let [gain] = values.get();
                 Echo {
                     gain: gain.raw(),
                     quirky: false,
@@ -484,7 +489,7 @@ fn route<const FIRST: usize>() -> ObjectSpec {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Route { first: FIRST }
         }

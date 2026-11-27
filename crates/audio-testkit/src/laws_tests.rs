@@ -5,8 +5,8 @@ use core::sync::atomic::{AtomicU16, Ordering};
 
 use audio_core::host::Raw;
 use audio_core::{
-    AlgorithmVersion, Binary64, Block, Capability, Create, Driven, Object, ObjectSpec, ParamSpec,
-    PortSpec, Precision, Sample, SampleRate,
+    AlgorithmVersion, Binary64, Block, Capability, Create, Driven, Driving, Object, ObjectSpec,
+    ParamSpec, PortSpec, Precision, Sample, SampleRate, Values,
 };
 
 use super::{check_description, check_laws, check_registry};
@@ -162,7 +162,8 @@ impl<S: Sample, const N: usize> Object<S, N> for Fixture {
 }
 
 impl<S: Sample, const N: usize> Driven<S, N, 1> for Fixture {
-    fn set(&mut self, [value]: [Binary64; 1]) {
+    fn set(&mut self, values: Values<1>) {
+        let [value] = values.get();
         if let Self::Gain(gain) = self {
             *gain = value.raw();
         }
@@ -173,21 +174,21 @@ impl<S: Sample, const N: usize> Driven<S, N, 1> for Fixture {
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        _params: &[Block<Binary64, N>; 1],
+        _params: Driving<'_, N, 1>,
     ) {
         self.process(inputs, outputs);
     }
 }
 
 impl<S: Sample, const N: usize> Driven<S, N, 2> for Fixture {
-    fn set(&mut self, _params: [Binary64; 2]) {}
+    fn set(&mut self, _params: Values<2>) {}
 
     /// Renders as it would undriven: these laws drive no parameter.
     fn process_driven(
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        _params: &[Block<Binary64, N>; 2],
+        _params: Driving<'_, N, 2>,
     ) {
         self.process(inputs, outputs);
     }
@@ -231,9 +232,9 @@ macro_rules! box_type {
 
             fn create<S: Sample, const N: usize>(
                 $rate: SampleRate,
-                given: [Binary64; count($params)],
+                given: Values<{ count($params) }>,
             ) -> impl Driven<S, N, { count($params) }> + 'static {
-                let raw: Vec<f64> = given.iter().map(|param| param.raw()).collect();
+                let raw: Vec<f64> = given.get().iter().map(|param| param.raw()).collect();
                 let $given: &[f64] = &raw;
                 $body
             }
@@ -485,7 +486,7 @@ fn holds_an_offline_only_box_to_every_law_but_the_heap() {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _given: [Binary64; 1],
+            _given: Values<1>,
         ) -> impl Driven<S, N, 1> + 'static {
             Fixture::Allocating
         }
@@ -498,7 +499,7 @@ fn holds_an_offline_only_box_to_every_law_but_the_heap() {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            _given: [Binary64; 1],
+            _given: Values<1>,
         ) -> impl Driven<S, N, 1> + 'static {
             Fixture::Nan
         }

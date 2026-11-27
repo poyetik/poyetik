@@ -10,7 +10,8 @@ use crate::tests::{hann_sums_bounds, larger};
 use crate::{AlgorithmVersion, ObjectSpec, ParamSpec, ParamValues};
 use crate::{
     ArithmeticMode, ArithmeticOption, BLOCK_SIZE, Binary32, Binary64, Block, Create, Driven,
-    Factory, MODE, Object, Precision, RenderFormat, Sample, SampleRate, UnknownArithmeticOptions,
+    Driving, Factory, MODE, Object, Precision, RenderFormat, Sample, SampleRate,
+    UnknownArithmeticOptions, Values,
 };
 
 /// The nearest binary32 to the binary64 `bits`, worked out in integers from IEEE 754 alone
@@ -651,7 +652,8 @@ impl<S: Sample, const N: usize> Object<S, N> for Width {
 }
 
 impl<S: Sample, const N: usize> Driven<S, N, 2> for Width {
-    fn set(&mut self, [once, twice]: [Binary64; 2]) {
+    fn set(&mut self, values: Values<2>) {
+        let [once, twice] = values.get();
         self.sum = once.raw() + 2.0_f64 * twice.raw();
     }
 
@@ -659,8 +661,9 @@ impl<S: Sample, const N: usize> Driven<S, N, 2> for Width {
         &mut self,
         _inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        [once, twice]: &[Block<Binary64, N>; 2],
+        driving: Driving<'_, N, 2>,
     ) {
+        let [once, twice] = driving.blocks();
         let width = f64::from(S::PRECISION.bits());
         for output in outputs {
             for ((sample, first), second) in output.iter_mut().zip(once).zip(twice) {
@@ -680,8 +683,9 @@ impl Create<2> for Width {
 
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        [once, twice]: [Binary64; 2],
+        values: Values<2>,
     ) -> impl Driven<S, N, 2> + 'static {
+        let [once, twice] = values.get();
         Self {
             sum: once.raw() + 2.0_f64 * twice.raw(),
             rate: f64::from(rate.hz()) / 1e6_f64,

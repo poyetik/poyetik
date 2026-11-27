@@ -67,9 +67,9 @@ pub use math::{
 };
 pub use mode::{BoxMode, ExecutionMode};
 pub use object::{
-    AlgorithmVersion, BoxInstance, Capability, Create, Dispatch, Driven, DrivenValues,
+    AlgorithmVersion, BoxInstance, Capability, Create, Dispatch, Driven, DrivenValues, Driving,
     ENGINE_BLOCKS, Factory, Object, ObjectSpec, ParamError, ParamSpec, ParamSpecError, ParamValues,
-    Params, PortSpec, RENDER_RULES_VERSION, Typed,
+    Params, PortSpec, RENDER_RULES_VERSION, Typed, Values,
 };
 pub use output::{AsComputed, FirstReplaced, LimiterMode, OutputStage, Replaced, StageError};
 pub use patch::{Connection, Node, NodeId, Patch};

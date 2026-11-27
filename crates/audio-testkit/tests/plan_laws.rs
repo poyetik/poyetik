@@ -30,9 +30,9 @@ mod tests {
     use audio_core::{
         AlgorithmVersion, AsComputed, BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance,
         Capability, Connection, CoreError, Create, Detector, Dispatch, Driven, DrivenValues,
-        ENGINE_BLOCKS, LimiterMode, LimiterSettings, Node, NodeId, Object, ObjectSpec, OutputStage,
-        ParamSpec, ParamValues, Patch, Plan, PortSpec, Precision, Renderer, Replaced, Sample,
-        SampleRate, TruePeakLimiter, Typed,
+        Driving, ENGINE_BLOCKS, LimiterMode, LimiterSettings, Node, NodeId, Object, ObjectSpec,
+        OutputStage, ParamSpec, ParamValues, Patch, Plan, PortSpec, Precision, Renderer, Replaced,
+        Sample, SampleRate, TruePeakLimiter, Typed, Values,
     };
     use audio_testkit::matrix::{ENGINE_BLOCK_SIZES, HOST_BUFFER_SIZES, PRECISIONS, sample_rates};
     use audio_testkit::runner::{fork, runner};
@@ -75,7 +75,8 @@ mod tests {
         }
     }
     impl<S: Sample, const N: usize> Driven<S, N, 1> for Const {
-        fn set(&mut self, [value]: [Binary64; 1]) {
+        fn set(&mut self, values: Values<1>) {
+            let [value] = values.get();
             self.0 = value.raw();
         }
 
@@ -83,8 +84,9 @@ mod tests {
             &mut self,
             _inputs: &[Block<S, N>],
             outputs: &mut [Block<S, N>],
-            [values]: &[Block<Binary64, N>; 1],
+            driving: Driving<'_, N, 1>,
         ) {
+            let [values] = driving.blocks();
             for output in outputs {
                 for (sample, &value) in output.iter_mut().zip(values) {
                     *sample = S::from_binary64(value);
@@ -99,8 +101,9 @@ mod tests {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            [value]: [Binary64; 1],
+            values: Values<1>,
         ) -> impl Driven<S, N, 1> + 'static {
+            let [value] = values.get();
             Self(value.raw())
         }
     }
@@ -147,7 +150,7 @@ mod tests {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Self(0.0)
         }
@@ -173,7 +176,7 @@ mod tests {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Self
         }
@@ -204,7 +207,7 @@ mod tests {
 
         fn create<S: Sample, const N: usize>(
             rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Self(f64::from(rate.hz() / 10))
         }
@@ -246,7 +249,7 @@ mod tests {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Self(0)
         }
@@ -1032,7 +1035,7 @@ mod tests {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Self
         }
@@ -1735,7 +1738,7 @@ mod tests {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Self
         }
@@ -1884,7 +1887,7 @@ mod tests {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Self(Some(vec![0.0; 8]))
         }

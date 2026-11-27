@@ -7,7 +7,7 @@
 mod tests {
     use audio_core::{
         AlgorithmVersion, Binary32, Binary64, Block, BoxInstance, Create, Driven, Object,
-        ObjectSpec, ParamSpec, Sample, SampleRate,
+        ObjectSpec, ParamSpec, Sample, SampleRate, Values,
     };
 
     #[derive(Debug)]
@@ -21,7 +21,7 @@ mod tests {
 
         fn create<S: Sample, const N: usize>(
             _rate: SampleRate,
-            []: [Binary64; 0],
+            _: Values<0>,
         ) -> impl Driven<S, N, 0> + 'static {
             Self
         }

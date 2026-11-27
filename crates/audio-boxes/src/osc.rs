@@ -1,8 +1,8 @@
 //! `osc~`: a sine oscillator.
 
 use audio_core::{
-    AlgorithmVersion, Binary64, Block, Create, Driven, Object, ObjectSpec, ParamSpec, PortSpec,
-    Sample, SampleRate, param,
+    AlgorithmVersion, Binary64, Block, Create, Driven, Driving, Object, ObjectSpec, ParamSpec,
+    PortSpec, Sample, SampleRate, Values, param,
 };
 
 /// Sine oscillator, written once for both precisions. The phase is accumulated in binary64
@@ -41,7 +41,8 @@ impl<S: Sample, const N: usize> Object<S, N> for Osc {
 }
 
 impl<S: Sample, const N: usize> Driven<S, N, 1> for Osc {
-    fn set(&mut self, [frequency]: [Binary64; 1]) {
+    fn set(&mut self, values: Values<1>) {
+        let [frequency] = values.get();
         self.tune(frequency);
     }
 
@@ -49,8 +50,9 @@ impl<S: Sample, const N: usize> Driven<S, N, 1> for Osc {
         &mut self,
         _inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        [frequencies]: &[Block<Binary64, N>; 1],
+        driving: Driving<'_, N, 1>,
     ) {
+        let [frequencies] = driving.blocks();
         for output in outputs.iter_mut().take(1) {
             for (sample, &frequency) in output.iter_mut().zip(frequencies) {
                 self.tune(frequency);
@@ -97,7 +99,8 @@ impl Osc {
     /// The frequency cannot be missing: both are given one value per parameter of this
     /// type, as an array.
     #[inline]
-    pub(crate) fn of(rate: SampleRate, [frequency]: [Binary64; 1]) -> Self {
+    pub(crate) fn of(rate: SampleRate, values: Values<1>) -> Self {
+        let [frequency] = values.get();
         Self::new(rate, frequency)
     }
 }
@@ -115,7 +118,7 @@ impl Create<1> for Osc {
     /// An oscillator from its frequency parameter.
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        params: [Binary64; 1],
+        params: Values<1>,
     ) -> impl Driven<S, N, 1> + 'static {
         Self::of(rate, params)
     }

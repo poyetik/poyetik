@@ -13,8 +13,8 @@ use super::Feed;
 use crate::host::{Delivered, Raw};
 use crate::{
     AlgorithmVersion, BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, Capability, Connection,
-    CoreError, Create, Driven, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan, PortSpec,
-    Precision, Renderer, Sample, SampleRate, Typed,
+    CoreError, Create, Driven, Driving, Node, NodeId, Object, ObjectSpec, ParamSpec, Patch, Plan,
+    PortSpec, Precision, Renderer, Sample, SampleRate, Typed, Values,
 };
 
 /// How these tests' plans hold their box instances: every box type through its virtual
@@ -49,7 +49,8 @@ impl<S: Sample, const N: usize> Object<S, N> for Const {
     }
 }
 impl<S: Sample, const N: usize> Driven<S, N, 1> for Const {
-    fn set(&mut self, [value]: [Binary64; 1]) {
+    fn set(&mut self, values: Values<1>) {
+        let [value] = values.get();
         self.0 = value;
     }
 
@@ -57,8 +58,9 @@ impl<S: Sample, const N: usize> Driven<S, N, 1> for Const {
         &mut self,
         _inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        [values]: &[Block<Binary64, N>; 1],
+        driving: Driving<'_, N, 1>,
     ) {
+        let [values] = driving.blocks();
         for output in outputs {
             for (sample, &value) in output.iter_mut().zip(values) {
                 *sample = S::from_binary64(value);
@@ -77,8 +79,9 @@ macro_rules! constant {
 
             fn create<S: Sample, const N: usize>(
                 _rate: SampleRate,
-                [value]: [Binary64; 1],
+                values: Values<1>,
             ) -> impl Driven<S, N, 1> + 'static {
+                let [value] = values.get();
                 Const(value)
             }
         }
@@ -124,7 +127,7 @@ impl Create<0> for Ramp {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self(0.0)
     }
@@ -164,7 +167,7 @@ impl Create<0> for Add {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self
     }
@@ -190,7 +193,7 @@ impl Create<0> for Out {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self
     }
@@ -230,7 +233,7 @@ impl Create<0> for Rate {
 
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self(f64::from(rate.hz() / 10))
     }
@@ -260,7 +263,7 @@ impl Create<0> for Pass {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self
     }
@@ -315,7 +318,7 @@ impl Create<0> for NonFinite {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self
     }
@@ -349,7 +352,7 @@ impl Create<0> for Huge {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self
     }
@@ -387,7 +390,7 @@ impl Create<0> for HugeAt {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self(0)
     }
@@ -432,7 +435,7 @@ impl Create<0> for Count {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self
     }
@@ -460,7 +463,7 @@ impl Create<0> for Heavy {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self
     }
@@ -1920,7 +1923,7 @@ impl Create<0> for ProductThenSum {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self
     }
@@ -2416,9 +2419,18 @@ impl<S: Sample, const N: usize> crate::Dispatch<S, N> for Direct<S, N> {
     fn create(rate: SampleRate, values: &crate::ParamValues) -> Option<Self> {
         let spec = values.spec();
         Some(Self(match spec.name() {
-            "ramp~" => Box::new(Typed::<_, 0>::new(spec, Ramp::create::<S, N>(rate, []))),
-            "huge-at~" => Box::new(Typed::<_, 0>::new(spec, HugeAt::create::<S, N>(rate, []))),
-            _ => Box::new(Typed::<_, 0>::new(spec, Out::create::<S, N>(rate, []))),
+            "ramp~" => Box::new(Typed::<_, 0>::new(
+                spec,
+                Ramp::create::<S, N>(rate, Values([])),
+            )),
+            "huge-at~" => Box::new(Typed::<_, 0>::new(
+                spec,
+                HugeAt::create::<S, N>(rate, Values([])),
+            )),
+            _ => Box::new(Typed::<_, 0>::new(
+                spec,
+                Out::create::<S, N>(rate, Values([])),
+            )),
         }))
     }
 }

@@ -1,8 +1,8 @@
 //! `dac~`: the audio output.
 
 use audio_core::{
-    AlgorithmVersion, Binary64, Block, Capability, Create, Driven, Object, ObjectSpec, ParamSpec,
-    PortSpec, Sample, SampleRate,
+    AlgorithmVersion, Block, Capability, Create, Driven, Object, ObjectSpec, ParamSpec, PortSpec,
+    Sample, SampleRate, Values,
 };
 
 /// Audio output: the engine sums the inlets of this box into its output channels.
@@ -20,7 +20,7 @@ impl Create<0> for Dac {
 
     fn create<S: Sample, const N: usize>(
         _rate: SampleRate,
-        []: [Binary64; 0],
+        _: Values<0>,
     ) -> impl Driven<S, N, 0> + 'static {
         Self
     }

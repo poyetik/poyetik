@@ -357,8 +357,10 @@ macro_rules! param {
 /// type's spec, which it keeps ([`ParamValues::spec`]): an instance is created from the
 /// values alone ([`Dispatch::create`]), of the box type they were checked against, and given
 /// only values of its own box type afterwards ([`BoxInstance::receive`], [`Typed`]), so a
-/// box can rely on all of it, whoever created it: the plan, the box laws, the fingerprint
-/// battery or a host. No unchecked constructor is public:
+/// box can rely on all of it, as [`Values`] and [`Driving`] hand it, whoever created it (the
+/// plan, the box laws, the fingerprint battery or a host), as long as an instance is tied to
+/// the box type that created it (the precondition of [`Typed::new`]). No unchecked
+/// constructor is public:
 ///
 /// ```compile_fail,E0599
 /// let _values = audio_core::ParamValues::new([audio_core::Binary64::new(1e9)]);
@@ -751,14 +753,77 @@ impl<const N: usize> DrivenValues<N> {
 pub struct Params<'values>(&'values [Binary64]);
 
 impl Params<'_> {
-    /// The values as an array, one per parameter of a box type of `K`, which the engine hands
-    /// a box ([`Create`], [`Typed`]) for it to take apart by pattern (`[frequency]`); none when
-    /// there are not `K`. The values of a box type are as many as its parameters
-    /// ([`ParamValues`]), so it is never none where `K` is that number, as [`Create`] requires
-    /// of a box type.
+    /// The values as [`Values`] of `K`, one per parameter of a box type of `K`, which the engine
+    /// hands a box ([`Create`], [`Typed`]) for it to take apart by pattern
+    /// (`let [frequency] = values.get();`); none when there are not `K`. The values of a box
+    /// type are as many as its parameters ([`ParamValues`]), so it is never none where `K` is
+    /// that number, as [`Create`] requires of a box type.
     #[must_use]
-    pub fn array<const K: usize>(self) -> Option<[Binary64; K]> {
-        self.0.try_into().ok()
+    pub fn array<const K: usize>(self) -> Option<Values<K>> {
+        self.0.try_into().ok().map(Values)
+    }
+}
+
+/// The values of a box type's `K` parameters as a box receives them ([`Create::create`],
+/// [`Driven::set`]).
+///
+/// One per parameter, in order, each within its range, in binary64, none below 2^-126 in
+/// magnitude but zero, as a [`ParamValues`] checked them. Only audio-core builds one, from
+/// the values of a [`ParamValues`] ([`Params::array`]), so that no array a caller wrote
+/// reaches a box:
+///
+/// ```compile_fail,E0603
+/// let _values = audio_core::Values::<1>([audio_core::Binary64::new(2.0)]);
+/// ```
+///
+/// nor does a box take one in its place:
+///
+/// ```compile_fail,E0308
+/// use audio_core::{Binary64, Create, SampleRate};
+///
+/// fn give<T: Create<1>>(rate: SampleRate) {
+///     let _instance = T::create::<f32, 64>(rate, [Binary64::new(2.0)]);
+/// }
+/// ```
+///
+/// It has the layout of the array it holds (`repr(transparent)`) and is given by value, as the
+/// array was.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct Values<const K: usize>(pub(crate) [Binary64; K]);
+
+impl<const K: usize> Values<K> {
+    /// The values, for a box to take apart by pattern (`let [frequency] = values.get();`).
+    #[must_use]
+    pub const fn get(self) -> [Binary64; K] {
+        self.0
+    }
+}
+
+/// The values driving a box type's `K` parameters through a block of `N` frames as a box
+/// receives them ([`Driven::process_driven`]).
+///
+/// One block per parameter, in order, each value as [`Values`] holds one, as a
+/// [`DrivenValues`] checked them. Only audio-core builds one, from the blocks of a
+/// [`DrivenValues`] ([`BoxInstance::run_driven`]), so that no block a caller wrote reaches a
+/// box:
+///
+/// ```compile_fail,E0423
+/// let blocks = [[audio_core::Binary64::new(2.0); 64]];
+/// let _driving = audio_core::Driving::<64, 1>(&blocks);
+/// ```
+///
+/// It has the layout of the reference it holds (`repr(transparent)`), one pointer, and is given
+/// by value, as the reference was.
+#[repr(transparent)]
+#[derive(Debug, Clone, Copy)]
+pub struct Driving<'values, const N: usize, const K: usize>(&'values [Block<Binary64, N>; K]);
+
+impl<'values, const N: usize, const K: usize> Driving<'values, N, K> {
+    /// The blocks, for a box to take apart by pattern (`let [frequencies] = driving.blocks();`).
+    #[must_use]
+    pub const fn blocks(self) -> &'values [Block<Binary64, N>; K] {
+        self.0
     }
 }
 
@@ -780,7 +845,10 @@ impl Deref for Params<'_> {
 /// its values apart names each, with no value to invent for a missing one:
 ///
 /// ```
-/// use audio_core::{Binary64, Block, BoxMode, Create, Driven, Object, ParamSpec, Sample, SampleRate};
+/// use audio_core::{
+///     Binary64, Block, BoxMode, Create, Driven, Driving, Object, ParamSpec, Sample, SampleRate,
+///     Values,
+/// };
 ///
 /// #[derive(Debug)]
 /// struct Gain(Binary64);
@@ -790,7 +858,8 @@ impl Deref for Params<'_> {
 /// }
 ///
 /// impl<S: Sample, const N: usize> Driven<S, N, 1> for Gain {
-///     fn set(&mut self, [gain]: [Binary64; 1]) {
+///     fn set(&mut self, values: Values<1>) {
+///         let [gain] = values.get();
 ///         self.0 = gain;
 ///     }
 ///
@@ -798,8 +867,9 @@ impl Deref for Params<'_> {
 ///         &mut self,
 ///         _inputs: &[Block<S, N>],
 ///         _outputs: &mut [Block<S, N>],
-///         [_gains]: &[Block<Binary64, N>; 1],
+///         driving: Driving<'_, N, 1>,
 ///     ) {
+///     let [_gains] = driving.blocks();
 ///     }
 /// }
 ///
@@ -810,8 +880,9 @@ impl Deref for Params<'_> {
 ///
 ///     fn create<S: Sample, const N: usize>(
 ///         _rate: SampleRate,
-///         [gain]: [Binary64; 1],
+///         values: Values<1>,
 ///     ) -> impl Driven<S, N, 1> + 'static {
+///         let [gain] = values.get();
 ///         Self(gain)
 ///     }
 /// }
@@ -821,22 +892,27 @@ impl Deref for Params<'_> {
 /// taking none, nor one describing two parameters and taking one:
 ///
 /// ```compile_fail,E0527
-/// # use audio_core::{Binary64, Block, BoxMode, Create, Driven, Object, ParamSpec, Sample, SampleRate};
+/// # use audio_core::{
+/// #     Binary64, Block, BoxMode, Create, Driven, Driving, Object, ParamSpec, Sample, SampleRate,
+/// #     Values,
+/// # };
 /// # #[derive(Debug)]
 /// # struct Gain(Binary64);
 /// # impl<S: Sample, const N: usize> Object<S, N> for Gain {
 /// #     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
 /// # }
 /// # impl<S: Sample, const N: usize> Driven<S, N, 1> for Gain {
-/// #     fn set(&mut self, [gain]: [Binary64; 1]) {
+/// #     fn set(&mut self, values: Values<1>) {
+/// #         let [gain] = values.get();
 /// #         self.0 = gain;
 /// #     }
 /// #     fn process_driven(
 /// #         &mut self,
 /// #         _inputs: &[Block<S, N>],
 /// #         _outputs: &mut [Block<S, N>],
-/// #         [_gains]: &[Block<Binary64, N>; 1],
+/// #         driving: Driving<'_, N, 1>,
 /// #     ) {
+/// #     let [_gains] = driving.blocks();
 /// #     }
 /// # }
 /// impl Create<1> for Gain {
@@ -846,30 +922,36 @@ impl Deref for Params<'_> {
 ///
 ///     fn create<S: Sample, const N: usize>(
 ///         _rate: SampleRate,
-///         [gain, _pan]: [Binary64; 1],
+///         values: Values<1>,
 ///     ) -> impl Driven<S, N, 1> + 'static {
+///         let [gain, _pan] = values.get();
 ///         Self(gain)
 ///     }
 /// }
 /// ```
 ///
 /// ```compile_fail,E0053
-/// # use audio_core::{Binary64, Block, BoxMode, Create, Driven, Object, ParamSpec, Sample, SampleRate};
+/// # use audio_core::{
+/// #     Binary64, Block, BoxMode, Create, Driven, Driving, Object, ParamSpec, Sample, SampleRate,
+/// #     Values,
+/// # };
 /// # #[derive(Debug)]
 /// # struct Gain(Binary64);
 /// # impl<S: Sample, const N: usize> Object<S, N> for Gain {
 /// #     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
 /// # }
 /// # impl<S: Sample, const N: usize> Driven<S, N, 1> for Gain {
-/// #     fn set(&mut self, [gain]: [Binary64; 1]) {
+/// #     fn set(&mut self, values: Values<1>) {
+/// #         let [gain] = values.get();
 /// #         self.0 = gain;
 /// #     }
 /// #     fn process_driven(
 /// #         &mut self,
 /// #         _inputs: &[Block<S, N>],
 /// #         _outputs: &mut [Block<S, N>],
-/// #         [_gains]: &[Block<Binary64, N>; 1],
+/// #         driving: Driving<'_, N, 1>,
 /// #     ) {
+/// #     let [_gains] = driving.blocks();
 /// #     }
 /// # }
 /// impl Create<1> for Gain {
@@ -879,7 +961,7 @@ impl Deref for Params<'_> {
 ///
 ///     fn create<S: Sample, const N: usize>(
 ///         _rate: SampleRate,
-///         []: [Binary64; 0],
+///         _: Values<0>,
 ///     ) -> impl Driven<S, N, 1> + 'static {
 ///         Self(Binary64::new(0.5))
 ///     }
@@ -887,22 +969,27 @@ impl Deref for Params<'_> {
 /// ```
 ///
 /// ```compile_fail,E0308
-/// # use audio_core::{Binary64, Block, BoxMode, Create, Driven, Object, ParamSpec, Sample, SampleRate};
+/// # use audio_core::{
+/// #     Binary64, Block, BoxMode, Create, Driven, Driving, Object, ParamSpec, Sample, SampleRate,
+/// #     Values,
+/// # };
 /// # #[derive(Debug)]
 /// # struct Gain(Binary64);
 /// # impl<S: Sample, const N: usize> Object<S, N> for Gain {
 /// #     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
 /// # }
 /// # impl<S: Sample, const N: usize> Driven<S, N, 1> for Gain {
-/// #     fn set(&mut self, [gain]: [Binary64; 1]) {
+/// #     fn set(&mut self, values: Values<1>) {
+/// #         let [gain] = values.get();
 /// #         self.0 = gain;
 /// #     }
 /// #     fn process_driven(
 /// #         &mut self,
 /// #         _inputs: &[Block<S, N>],
 /// #         _outputs: &mut [Block<S, N>],
-/// #         [_gains]: &[Block<Binary64, N>; 1],
+/// #         driving: Driving<'_, N, 1>,
 /// #     ) {
+/// #     let [_gains] = driving.blocks();
 /// #     }
 /// # }
 /// impl Create<1> for Gain {
@@ -914,8 +1001,9 @@ impl Deref for Params<'_> {
 ///
 ///     fn create<S: Sample, const N: usize>(
 ///         _rate: SampleRate,
-///         [gain]: [Binary64; 1],
+///         values: Values<1>,
 ///     ) -> impl Driven<S, N, 1> + 'static {
+///         let [gain] = values.get();
 ///         Self(gain)
 ///     }
 /// }
@@ -925,7 +1013,10 @@ impl Deref for Params<'_> {
 /// not compile either:
 ///
 /// ```compile_fail,E0277
-/// use audio_core::{Binary64, Block, BoxMode, Create, Driven, Object, ParamSpec, Sample, SampleRate};
+/// use audio_core::{
+///     Binary64, Block, BoxMode, Create, Driven, Driving, Object, ParamSpec, Sample, SampleRate,
+///     Values,
+/// };
 ///
 /// #[derive(Debug)]
 /// struct Gain(Binary64);
@@ -941,8 +1032,9 @@ impl Deref for Params<'_> {
 ///
 ///     fn create<S: Sample, const N: usize>(
 ///         _rate: SampleRate,
-///         [gain]: [Binary64; 1],
+///         values: Values<1>,
 ///     ) -> impl Driven<S, N, 1> + 'static {
+///         let [gain] = values.get();
 ///         Self(gain)
 ///     }
 /// }
@@ -959,14 +1051,14 @@ pub trait Create<const K: usize> {
     /// Creates an instance computing in `S` in blocks of `N` frames, from a sample rate and
     /// its parameter values.
     ///
-    /// The values come as [`Params`] says, as an array: one per parameter of [`Create::PARAMS`], in
-    /// order, each within its range, in binary64, none below 2^-126 in magnitude but zero. The engine
-    /// calls it only through the box type's [`Factory`], from values checked against a spec
-    /// of this type ([`Dispatch::create`]), whose parameters are this type's by construction
-    /// ([`ObjectSpec::new`]).
+    /// The values come as [`Values`], which only audio-core builds: one per parameter of
+    /// [`Create::PARAMS`], in order, each within its range, in binary64, none below 2^-126 in
+    /// magnitude but zero. The engine calls it only through the box type's [`Factory`], from
+    /// values checked against a spec of this type ([`Dispatch::create`]), whose parameters are
+    /// this type's by construction ([`ObjectSpec::new`]).
     fn create<S: Sample, const N: usize>(
         rate: SampleRate,
-        params: [Binary64; K],
+        params: Values<K>,
     ) -> impl Driven<S, N, K> + 'static;
 }
 
@@ -1023,7 +1115,7 @@ fn created<T: Create<K>, const K: usize, S: Sample, const N: usize>(
 ///
 /// ```compile_fail,E0624
 /// use audio_core::{
-///     Binary64, Block, Create, Driven, Factory, Object, ParamSpec, Sample, SampleRate,
+///     Binary64, Block, Create, Driven, Factory, Object, ParamSpec, Sample, SampleRate, Values,
 /// };
 ///
 /// #[derive(Debug)]
@@ -1039,7 +1131,7 @@ fn created<T: Create<K>, const K: usize, S: Sample, const N: usize>(
 ///
 ///     fn create<S: Sample, const N: usize>(
 ///         _rate: SampleRate,
-///         []: [Binary64; 0],
+///         _: Values<0>,
 ///     ) -> impl Driven<S, N, 0> + 'static {
 ///         Self
 ///     }
@@ -1150,9 +1242,11 @@ impl Factory {
     /// Creates an instance computing in `S` in blocks of `N` frames, at `rate`, with
     /// `values` as [`Create::create`] receives them, tied to their box type ([`Typed`]);
     /// none when this build does not hold that engine block ([`crate::NAMED_ENGINE_BLOCK`]),
-    /// or when `values` are not as many as its box type's parameters. Crate-private, since
+    /// or when `values` are not as many as its box type's parameters, which the values of its
+    /// own box type always are, by construction ([`ParamValues`]). Crate-private, since
     /// `values` may be of another box type than this factory's; [`Dispatch::create`] takes
-    /// the factory of the box type the values carry.
+    /// the factory of the box type the values carry, so the engine never meets the second
+    /// cause.
     #[must_use]
     pub(crate) fn create<S: Sample, const N: usize>(
         &self,
@@ -1226,7 +1320,7 @@ impl fmt::Display for AlgorithmVersion {
 /// ```
 /// use audio_core::{
 ///     AlgorithmVersion, Binary64, Block, Create, Driven, Object, ObjectSpec, ParamSpec, Sample,
-///     SampleRate,
+///     SampleRate, Values,
 /// };
 ///
 /// #[derive(Debug)]
@@ -1242,7 +1336,7 @@ impl fmt::Display for AlgorithmVersion {
 ///
 ///     fn create<S: Sample, const N: usize>(
 ///         _rate: SampleRate,
-///         []: [Binary64; 0],
+///         _: Values<0>,
 ///     ) -> impl Driven<S, N, 0> + 'static {
 ///         Self
 ///     }
@@ -1254,46 +1348,68 @@ impl fmt::Display for AlgorithmVersion {
 /// ```
 ///
 /// Its fields are private, so another box type's parameters cannot be paired with its
-/// factory by a struct update:
+/// factory: outside audio-core none is read, nor set:
 ///
-/// ```compile_fail,E0451
-/// use audio_core::{
-///     AlgorithmVersion, Binary64, Block, Create, Driven, Object, ObjectSpec, ParamSpec, Sample,
-///     SampleRate,
-/// };
-///
-/// #[derive(Debug)]
-/// struct Silent;
-///
-/// impl<S: Sample, const N: usize> Object<S, N> for Silent {
-///     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
+/// ```compile_fail,E0616
+/// fn params(spec: &audio_core::ObjectSpec) -> &'static [audio_core::ParamSpec] {
+///     spec.params
 /// }
+/// ```
 ///
-/// impl Create<0> for Silent {
-///     const BOX_MODE: audio_core::BoxMode = audio_core::BoxMode::LiveCapable;
-///     const PARAMS: &'static [ParamSpec; 0] = &[];
+/// A box type is told by the address of its spec ([`Typed`]), so a spec is a `static`, whose
+/// address is one: it has a destructor, which does nothing ([`Drop`]), so that a reference to
+/// a `const` spec, which each use may copy to another address, is never promoted to a
+/// `'static` one, and such a spec does not reach a box:
 ///
-///     fn create<S: Sample, const N: usize>(
-///         _rate: SampleRate,
-///         []: [Binary64; 0],
-///     ) -> impl Driven<S, N, 0> + 'static {
-///         Self
-///     }
+/// ```compile_fail,E0515
+/// use audio_core::{AlgorithmVersion, ObjectSpec};
+/// # use audio_core::{Block, BoxMode, Create, Driven, Object, ParamSpec, Sample, SampleRate, Values};
+/// # #[derive(Debug)]
+/// # struct Silent;
+/// # impl<S: Sample, const N: usize> Object<S, N> for Silent {
+/// #     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
+/// # }
+/// # impl Create<0> for Silent {
+/// #     const BOX_MODE: BoxMode = BoxMode::LiveCapable;
+/// #     const PARAMS: &'static [ParamSpec; 0] = &[];
+/// #     fn create<S: Sample, const N: usize>(_: SampleRate, _: Values<0>) -> impl Driven<S, N, 0> {
+/// #         Self
+/// #     }
+/// # }
+///
+/// const SPEC: ObjectSpec =
+///     ObjectSpec::new::<Silent, 0>("silent~", "silence", &[], &[], &[], AlgorithmVersion::FIRST);
+///
+/// fn spec() -> &'static ObjectSpec {
+///     &SPEC
 /// }
+/// ```
 ///
-/// fn copy() -> ObjectSpec {
-///     ObjectSpec {
-///         name: "copy~",
-///         ..ObjectSpec::new::<Silent, 0>(
-///             "silent~",
-///             "silence",
-///             &[],
-///             &[],
-///             &[],
-///             AlgorithmVersion::FIRST,
-///         )
-///     }
+/// while the same spec as a `static` does:
+///
+/// ```
+/// use audio_core::{AlgorithmVersion, ObjectSpec};
+/// # use audio_core::{Block, BoxMode, Create, Driven, Object, ParamSpec, Sample, SampleRate, Values};
+/// # #[derive(Debug)]
+/// # struct Silent;
+/// # impl<S: Sample, const N: usize> Object<S, N> for Silent {
+/// #     fn process(&mut self, _inputs: &[Block<S, N>], _outputs: &mut [Block<S, N>]) {}
+/// # }
+/// # impl Create<0> for Silent {
+/// #     const BOX_MODE: BoxMode = BoxMode::LiveCapable;
+/// #     const PARAMS: &'static [ParamSpec; 0] = &[];
+/// #     fn create<S: Sample, const N: usize>(_: SampleRate, _: Values<0>) -> impl Driven<S, N, 0> {
+/// #         Self
+/// #     }
+/// # }
+///
+/// static SPEC: ObjectSpec =
+///     ObjectSpec::new::<Silent, 0>("silent~", "silence", &[], &[], &[], AlgorithmVersion::FIRST);
+///
+/// fn spec() -> &'static ObjectSpec {
+///     &SPEC
 /// }
+/// # assert_eq!(spec().name(), "silent~");
 /// ```
 #[derive(Debug)]
 pub struct ObjectSpec {
@@ -1316,6 +1432,12 @@ pub struct ObjectSpec {
     /// The version of its algorithm (decision 29): a new one for any change that can
     /// change a bit of its output.
     algorithm_version: AlgorithmVersion,
+}
+
+/// Does nothing: a spec has a destructor only so that a reference to a `const` one is never
+/// promoted to a `'static` one, whose address each use may copy (see [`ObjectSpec`]).
+impl Drop for ObjectSpec {
+    fn drop(&mut self) {}
 }
 
 impl ObjectSpec {
@@ -1446,33 +1568,34 @@ pub trait Driven<S: Sample, const N: usize, const K: usize>: Object<S, N> {
     /// After a driven block whose last values stay, it is called before the next
     /// [`Object::process`], so a box need not remember the values it was driven by: by the
     /// driven laws (`audio_testkit::check_driven_laws`), and by a plan from #12 step 41.
-    fn set(&mut self, params: [Binary64; K]);
+    fn set(&mut self, params: Values<K>);
 
     /// Processes one block as [`Object::process`] does, frame `f` of it with the values
-    /// `params[..][f]`, as if [`Driven::set`] had given them before that frame: under the same
-    /// rules (every sample of every outlet written, no heap, no lock).
+    /// `params.blocks()[..][f]`, as if [`Driven::set`] had given them before that frame: under
+    /// the same rules (every sample of every outlet written, no heap, no lock).
     ///
     /// Each value is within its parameter's range, finite, none below 2^-126 in magnitude
-    /// but zero: an instance takes them as [`DrivenValues`], which checks them
-    /// ([`BoxInstance::run_driven`]; a plan calls it from #12 step 41).
+    /// but zero: an instance takes them as [`Driving`], which only audio-core builds, from a
+    /// [`DrivenValues`] that checks them ([`BoxInstance::run_driven`]; a plan calls it from
+    /// #12 step 41).
     fn process_driven(
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        params: &[Block<Binary64, N>; K],
+        params: Driving<'_, N, K>,
     );
 }
 
 /// A box without parameters has none to be driven by: it renders every block by
 /// [`Object::process`], and has nothing to write.
 impl<S: Sample, const N: usize, T: Object<S, N>> Driven<S, N, 0> for T {
-    fn set(&mut self, []: [Binary64; 0]) {}
+    fn set(&mut self, _: Values<0>) {}
 
     fn process_driven(
         &mut self,
         inputs: &[Block<S, N>],
         outputs: &mut [Block<S, N>],
-        []: &[Block<Binary64, N>; 0],
+        _: Driving<'_, N, 0>,
     ) {
         self.process(inputs, outputs);
     }
@@ -1485,13 +1608,17 @@ impl<S: Sample, const N: usize, T: Object<S, N>> Driven<S, N, 0> for T {
 pub trait BoxInstance<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> {
     /// Gives the parameters the values `values` ([`Driven::set`]); false, with nothing done,
     /// when they were checked against another box type than the instance's, whose ranges
-    /// may refuse them ([`ParamValues::spec`]).
+    /// may refuse them ([`ParamValues::spec`]), or when they are not as many as the
+    /// instance's parameters (a [`Typed`] whose `K` is not its box type's, which no factory
+    /// builds).
     #[must_use]
     fn receive(&mut self, values: &ParamValues) -> bool;
 
     /// Processes one block where a parameter changes ([`Driven::process_driven`]); false,
     /// with nothing written, when `values` were checked against another box type than the
-    /// instance's ([`DrivenValues::spec`]).
+    /// instance's ([`DrivenValues::spec`]), or when its blocks are not as many as the
+    /// instance's parameters (a [`Typed`] whose `K` is not its box type's, which no factory
+    /// builds).
     #[must_use]
     fn run_driven(
         &mut self,
@@ -1521,6 +1648,13 @@ pub struct Typed<I, const K: usize> {
 impl<I, const K: usize> Typed<I, K> {
     /// `instance`, an instance of the box type `spec` created from values checked against
     /// it, as the engine holds it.
+    ///
+    /// The instance must be one `spec`'s factory creates ([`Dispatch::create`]), from values
+    /// checked against `spec`: nothing ties the two types here, and an instance of another box
+    /// type would be given `spec`'s values. It is the precondition of the engine's one path, a
+    /// factory ([`Factory`]) and the built-in box types (`audio_boxes::BuiltIn`, each held by
+    /// its test that a registry's box type is created and called directly), and of any other
+    /// caller, which its review holds.
     ///
     /// `K` is that box type's number of parameters, as [`Create`] gives it. Every box has a
     /// body for none ([`Driven`]), so a `K` of 0 compiles for a box with parameters, an
@@ -1582,7 +1716,12 @@ impl<S: Sample, const N: usize, I: Driven<S, N, K>, const K: usize> BoxInstance<
     ) -> bool {
         match <&[Block<Binary64, N>; K]>::try_from(values.blocks.as_slice()) {
             Ok(blocks) if self.takes(values.spec) => {
-                Driven::<S, N, K>::process_driven(&mut self.instance, inputs, outputs, blocks);
+                Driven::<S, N, K>::process_driven(
+                    &mut self.instance,
+                    inputs,
+                    outputs,
+                    Driving(blocks),
+                );
                 true
             }
             _ => false,
