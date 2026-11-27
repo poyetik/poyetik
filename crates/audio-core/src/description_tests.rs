@@ -442,7 +442,7 @@ fn refuses_blank_texts_and_whitespace_in_the_name() {
     for spaced in ["a b", " a", "a "] {
         assert_eq!(
             refusal(3, &text(spaced.as_bytes())),
-            Some(refused(Field::Name, Fault::Space)),
+            Some(refused(Field::Name, Fault::SpaceInTypeName)),
             "{spaced:?}"
         );
     }
@@ -457,7 +457,7 @@ fn refuses_in_names_the_whitespace_that_reads_as_another() {
             if field == Field::Name {
                 assert_eq!(
                     refused_as,
-                    Some(refused(field, Fault::Space)),
+                    Some(refused(field, Fault::SpaceInTypeName)),
                     "{spaced:?} in the name of the box type"
                 );
             } else {
@@ -466,16 +466,16 @@ fn refuses_in_names_the_whitespace_that_reads_as_another() {
         }
     }
     assert_eq!(
-        refused(inlet(1, Part::Name), Fault::Spaces).to_string(),
+        refused(inlet(1, Part::Name), Fault::StraySpace).to_string(),
         "inlet 1, its name: starts or ends with a space, or holds two in a row",
         "said"
     );
     for edge in [" a", "a ", " a b ", "  a", "a  b", "a b  c"] {
         for (refused_as, field, name) in texts_in(edge) {
             let fault = if field == Field::Name {
-                Some(Fault::Space)
+                Some(Fault::SpaceInTypeName)
             } else {
-                name.then_some(Fault::Spaces)
+                name.then_some(Fault::StraySpace)
             };
             assert_eq!(
                 refused_as,
@@ -984,7 +984,7 @@ fn says_the_field_and_the_fault() {
             Fault::Truncated,
             "instantaneous response: the bytes end inside it",
         ),
-        (Field::Name, Fault::Space, "name: holds a space"),
+        (Field::Name, Fault::SpaceInTypeName, "name: holds a space"),
         (
             Field::Name,
             Fault::Character('\u{200b}'),
