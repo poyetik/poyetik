@@ -353,7 +353,7 @@ fn says_why_a_run_is_refused() {
             memory: 64
         }
         .to_string(),
-        "a run of buffers ends before byte 65, beyond a memory of 64 bytes",
+        "a run of buffers ends before byte 65, beyond a memory of 64 byte(s)",
         "outside memory"
     );
 }
@@ -658,18 +658,18 @@ fn says_why_a_copy_is_refused() {
                 index: 5,
                 buffers: 3,
             },
-            "a run of 3 buffers has no buffer 5",
+            "a run of 3 buffer(s) has no buffer 5",
         ),
         (
             CopyError::Frames { given: 3, span: 2 },
-            "a copy of 3 frames, outside 1 to the 2 frames of its run of buffers",
+            "a copy of 3 frames, outside 1 to the 2 frame(s) of its run of buffers",
         ),
         (
             CopyError::ShorterMemory {
                 memory: 9,
                 end: 128,
             },
-            "a buffer ends before byte 128, beyond a memory of 9 bytes",
+            "a buffer ends before byte 128, beyond a memory of 9 byte(s)",
         ),
     ] {
         assert_eq!(refusal.to_string(), said, "{refusal:?}");
@@ -787,7 +787,7 @@ fn says_why_a_header_is_refused() {
             memory: 12
         }
         .to_string(),
-        "the module's header, 8 bytes at byte 9, ends before byte 17, beyond a memory of 12 bytes",
+        "the module's header, 8 bytes at byte 9, ends before byte 17, beyond a memory of 12 byte(s)",
         "header"
     );
     assert_eq!(
@@ -797,7 +797,7 @@ fn says_why_a_header_is_refused() {
             memory: 27
         }
         .to_string(),
-        "the module's description, 4 bytes at byte 24, ends before byte 28, beyond a memory of 27 bytes",
+        "the module's description, 4 byte(s) at byte 24, ends before byte 28, beyond a memory of 27 byte(s)",
         "description"
     );
 }

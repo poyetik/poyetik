@@ -255,7 +255,7 @@ impl fmt::Display for HeaderError {
             Self::Header { offset, memory } => write!(
                 f,
                 "the module's header, {HEADER_BYTES} bytes at byte {offset}, ends before byte \
-                 {}, beyond a memory of {memory} bytes",
+                 {}, beyond a memory of {memory} byte(s)",
                 u64::from(offset).saturating_add(HEADER_BYTES)
             ),
             Self::Description {
@@ -264,8 +264,8 @@ impl fmt::Display for HeaderError {
                 memory,
             } => write!(
                 f,
-                "the module's description, {length} bytes at byte {offset}, ends before byte \
-                 {}, beyond a memory of {memory} bytes",
+                "the module's description, {length} byte(s) at byte {offset}, ends before byte \
+                 {}, beyond a memory of {memory} byte(s)",
                 offset.saturating_add(u64::from(length))
             ),
         }
@@ -635,15 +635,15 @@ impl fmt::Display for CopyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Self::NoBuffer { index, buffers } => {
-                write!(f, "a run of {buffers} buffers has no buffer {index}")
+                write!(f, "a run of {buffers} buffer(s) has no buffer {index}")
             }
             Self::Frames { given, span } => write!(
                 f,
-                "a copy of {given} frames, outside 1 to the {span} frames of its run of buffers"
+                "a copy of {given} frames, outside 1 to the {span} frame(s) of its run of buffers"
             ),
             Self::ShorterMemory { memory, end } => write!(
                 f,
-                "a buffer ends before byte {end}, beyond a memory of {memory} bytes"
+                "a buffer ends before byte {end}, beyond a memory of {memory} byte(s)"
             ),
         }
     }
@@ -688,7 +688,7 @@ impl fmt::Display for RunError {
             ),
             Self::OutsideMemory { end, memory } => write!(
                 f,
-                "a run of buffers ends before byte {end}, beyond a memory of {memory} bytes"
+                "a run of buffers ends before byte {end}, beyond a memory of {memory} byte(s)"
             ),
         }
     }
