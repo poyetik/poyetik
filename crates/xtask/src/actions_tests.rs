@@ -1,6 +1,6 @@
 //! Tests of running the steps: the inputs each action reads and how its verdict is said.
 
-use alloc::collections::BTreeSet;
+use alloc::collections::{BTreeMap, BTreeSet};
 use core::num::NonZeroUsize;
 use core::time::Duration;
 use std::io;
@@ -2436,12 +2436,19 @@ fn stops_each_gate_at_whichever_read_fails() {
             Ok(()),
             "{gate}"
         );
+        // How many times each call was made before: each of its occurrences is broken in
+        // turn, so that a file read twice fails at the second read too.
+        let mut made: BTreeMap<String, usize> = BTreeMap::new();
         for call in &whole.ran {
             // Each way a call can fail: a read refused; a command not started; a command
             // started and ended in failure, saying nothing (a capture with no answer, a run
             // exiting with an error, its output gone).
+            let name = call.strip_prefix("capture ").unwrap_or(call).to_owned();
+            let before = made.entry(name.clone()).or_default();
             let mut broken = passing();
-            broken.broken = Some(call.strip_prefix("capture ").unwrap_or(call).to_owned());
+            broken.spared = *before;
+            *before = before.saturating_add(1);
+            broken.broken = Some(name);
             let mut ways = vec![broken];
             if let Some(line) = call.strip_prefix("capture ") {
                 let mut silent = passing();
@@ -2465,15 +2472,16 @@ fn stops_each_gate_at_whichever_read_fails() {
                     .iter()
                     .find_map(|kind| call.strip_prefix(kind))
                     .unwrap_or(call);
-                // Named by its first words, or by its last (what a fallback names: the branch
-                // of a merge base, after the commands it tried).
+                // Named by its first words, or, for a merge base alone, by its last (what its
+                // fallback names: the branch, after the commands it tried).
                 let words: Vec<&str> = subject
                     .split_whitespace()
                     .map(|word| word.trim_matches(['"', '[', ']']))
                     .collect();
                 let named = failed.as_ref().is_err_and(|said| {
                     words.iter().take(3).all(|word| said.contains(word))
-                        || words.last().is_some_and(|word| said.contains(word))
+                        || (subject.starts_with("git merge-base ")
+                            && words.last().is_some_and(|word| said.contains(word)))
                 });
                 if !named {
                     unnamed.push(format!("{gate} | {call} | {failed:?}"));
@@ -2482,7 +2490,8 @@ fn stops_each_gate_at_whichever_read_fails() {
         }
     }
     assert_eq!(unnamed, Vec::<String>::new(), "each failure named");
-    assert!(calls > 1_000, "every gate's calls: {calls}");
+    // Exact, so that a gate whose calls are no longer all broken, or a new call, shows here.
+    assert_eq!(calls, 1312, "every way each gate's calls fail");
 }
 
 #[test]
