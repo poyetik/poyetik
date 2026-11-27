@@ -33,6 +33,11 @@ pub(crate) const SHADER_TEST_SOURCE: &str =
 /// The test of [`SHADER_TEST_SOURCE`] that validates them.
 const SHADER_TEST: &str = "validates_the_library_s_shaders";
 
+/// The tokens of a pair `validated_shaders_gate` reads, `"<path>", <crate>::<CONSTANT>`:
+/// typed once, so that its window and the destructuring of it fail to compile if they ever
+/// disagree.
+const PAIR: usize = 6;
+
 /// Checks that every shader of [`VALIDATED_SHADERS`] is validated by the GPU workspace's
 /// test ([`SHADER_TEST`] in `validating`, the text of [`SHADER_TEST_SOURCE`]), read as rustc
 /// reads it, comments apart: its body holds the pair `("<shader>", <crate>::<CONSTANT>)`,
@@ -62,7 +67,7 @@ pub(crate) fn validated_shaders_gate(
         .collect::<Result<Vec<RustSource>, Failure>>()?;
     // The pair, `"<path>", <crate>::<CONSTANT>`, then its end: `)`, after rustfmt's
     // trailing comma or not.
-    let pair: [&dyn Fn(&Token) -> bool; 6] = [
+    let pair: [&dyn Fn(&Token) -> bool; PAIR] = [
         &|token| token.kind == TokenKind::Literal,
         &|token| token.is_punct(','),
         &|token| token.kind == TokenKind::Ident,
@@ -80,7 +85,7 @@ pub(crate) fn validated_shaders_gate(
             .is_some_and(|close| close.kind == TokenKind::Close)
     };
     let pairs: Vec<(String, &str, &str)> = body
-        .array_windows::<6>()
+        .array_windows::<PAIR>()
         .zip(pair.len()..)
         .filter(|(window, end)| {
             window.iter().zip(pair).all(|(token, is)| is(token))
