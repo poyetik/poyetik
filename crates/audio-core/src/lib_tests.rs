@@ -1,5 +1,8 @@
 //! What the unit tests of several modules of the crate share.
 
+use alloc::vec;
+use alloc::vec::Vec;
+
 /// Runs each generic test in both precisions, each instantiation a test of its own: every
 /// instantiation of the generic code is covered on its own.
 macro_rules! in_both_precisions {
@@ -273,4 +276,27 @@ fn draws_splitmix64_from_its_published_values() {
         [draws.next(), draws.next()],
         [0xe220_a839_7b1d_cdaf, 0x6e78_9e6a_a1b9_65f4]
     );
+}
+
+/// A text of a module's description, as the format writes it: the one writer of a
+/// description's parts, for the tests of its reader and of the module's interface.
+pub(crate) fn text(value: &[u8]) -> Vec<u8> {
+    let length = u32::try_from(value.len()).expect("a text of a description");
+    [length.to_le_bytes().as_slice(), value].concat()
+}
+
+/// A port of a module's description: its name, its description text, its kind.
+pub(crate) fn port(name: &str, description: &str, kind: u8) -> Vec<u8> {
+    [
+        text(name.as_bytes()),
+        text(description.as_bytes()),
+        vec![kind],
+    ]
+    .concat()
+}
+
+/// A list of items of a module's description, as the format writes it.
+pub(crate) fn list(items: &[Vec<u8>]) -> Vec<u8> {
+    let count = u32::try_from(items.len()).expect("a list of a description");
+    [count.to_le_bytes().to_vec(), items.concat()].concat()
 }

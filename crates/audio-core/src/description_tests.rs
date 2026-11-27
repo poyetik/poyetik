@@ -11,34 +11,13 @@ use super::{
     DescribedParam, DescribedPort, Description, DescriptionError, Fault, Field, PORTS_MAX, Part,
     PortKind, RESERVED_PORT_KINDS, Response,
 };
+use crate::tests::{list, port, text};
 use crate::{Bound, BoxMode, Capability, ParamSpec, ParamSpecError, RangeRule};
-
-/// A text as the format writes it.
-fn text(value: &[u8]) -> Vec<u8> {
-    let length = u32::try_from(value.len()).expect("a text of a description");
-    [length.to_le_bytes().as_slice(), value].concat()
-}
-
-/// A port: its name, its description, its kind.
-fn port(name: &str, description: &str, kind: u8) -> Vec<u8> {
-    [
-        text(name.as_bytes()),
-        text(description.as_bytes()),
-        vec![kind],
-    ]
-    .concat()
-}
 
 /// A parameter: its name, its description, then its three values' bits.
 fn param(name: &str, description: &str, values: [f64; 3]) -> Vec<u8> {
     let bits = values.map(|value| value.to_bits().to_le_bytes()).concat();
     [text(name.as_bytes()), text(description.as_bytes()), bits].concat()
-}
-
-/// A list of items, as the format writes it.
-fn list(items: &[Vec<u8>]) -> Vec<u8> {
-    let count = u32::try_from(items.len()).expect("a list of a description");
-    [count.to_le_bytes().to_vec(), items.concat()].concat()
 }
 
 /// The fields of a description, each replaceable: what a test changes.

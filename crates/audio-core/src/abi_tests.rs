@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+use alloc::format;
 use alloc::string::ToString;
 
 use alloc::vec;
@@ -13,6 +14,7 @@ use super::{
 };
 use crate::host::Raw as _;
 use crate::host::{Description, Fault, Field};
+use crate::tests::{list, port, text};
 use crate::{Binary32, Binary64};
 
 /// Every native-order conversion of a number type, which `clippy.toml` bans as one family
@@ -802,33 +804,25 @@ fn says_why_a_header_is_refused() {
 
 /// The bytes of a description of `inlets` inlets and `outlets` outlets, audio signals all.
 fn ports(inlets: u8, outlets: u8) -> Vec<u8> {
-    let text = |value: &[u8]| {
-        let mut bytes = u32::try_from(value.len())
-            .expect("short")
-            .to_le_bytes()
-            .to_vec();
-        bytes.extend(value);
-        bytes
+    let named = |count: u8, prefix: char| {
+        let ports: Vec<Vec<u8>> = "abcdefghi"
+            .chars()
+            .take(usize::from(count))
+            .map(|letter| port(&format!("{prefix}{letter}"), "A signal", 0))
+            .collect();
+        assert_eq!(ports.len(), usize::from(count), "nine at most");
+        list(&ports)
     };
-    let list = |count: u8, prefix: u8| {
-        let mut bytes = u32::from(count).to_le_bytes().to_vec();
-        for &letter in b"abcdefghi"
-            .get(..usize::from(count))
-            .expect("nine at most")
-        {
-            bytes.extend(text(&[prefix, letter]));
-            bytes.extend(text(b"A signal"));
-            bytes.push(0);
-        }
-        bytes
-    };
-    let mut bytes = vec![1, 0, 0, 0, 0, 0];
-    bytes.extend(text(b"runs"));
-    bytes.extend(text(b"Its runs"));
-    bytes.extend(list(inlets, b'i'));
-    bytes.extend(list(outlets, b'o'));
-    bytes.extend([0; 8]);
-    bytes
+    [
+        vec![1, 0, 0, 0, 0, 0],
+        text(b"runs"),
+        text(b"Its runs"),
+        named(inlets, 'i'),
+        named(outlets, 'o'),
+        list(&[]),
+        list(&[]),
+    ]
+    .concat()
 }
 
 /// The runs of a box of `inlets` inlets and `outlets` outlets, binary64 spans of 2 frames,
