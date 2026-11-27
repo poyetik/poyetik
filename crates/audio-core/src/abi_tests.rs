@@ -15,6 +15,25 @@ use crate::host::Raw as _;
 use crate::host::{Description, Fault, Field};
 use crate::{Binary32, Binary64};
 
+/// Every native-order conversion of a number type, which `clippy.toml` bans as one family
+/// (the byte order of a target differs from another's; the readers of the contract read
+/// little-endian bytes): each expectation proves its ban fires, a ban dropped leaving it
+/// unfulfilled, which Clippy refuses.
+macro_rules! native_order_is_banned {
+    ($($number:ident),+ $(,)?) => {
+        $(
+            #[expect(clippy::disallowed_methods, reason = "proves the ban of to_ne_bytes fires")]
+            const _: [u8; size_of::<$number>()] = $number::MAX.to_ne_bytes();
+            #[expect(clippy::disallowed_methods, reason = "proves the ban of from_ne_bytes fires")]
+            const _: $number = $number::from_ne_bytes([0; size_of::<$number>()]);
+        )+
+    };
+}
+
+native_order_is_banned!(
+    u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64
+);
+
 /// The majors an engine declares in these tests, each with its last minor, out of order and
 /// with a gap, so that a rule reading only the first, the last or the range fails.
 const DECLARED: [ContractVersion; 3] = [
