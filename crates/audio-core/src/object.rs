@@ -158,8 +158,9 @@ impl ParamSpec {
     }
 
     /// `value` flushed as a plan flushes it, if it is then within range: the one rule of
-    /// [`ParamValues::of`] and [`DrivenValues::of`].
-    fn checked(&self, value: Binary64) -> Option<Binary64> {
+    /// [`ParamValues::of`], [`DrivenValues::of`] and a plan's reading of a patch's values,
+    /// each flushed once.
+    pub(crate) fn checked(&self, value: Binary64) -> Option<Binary64> {
         within(value.raw(), self.minimum, self.maximum)
     }
 }
@@ -1657,7 +1658,9 @@ pub trait BoxInstance<S: Sample, const N: usize = BLOCK_SIZE>: Object<S, N> {
 /// The box type is told by the address of its spec, as a plan holds it: a spec is a
 /// `static`, and values carry the reference they were checked against, so the values a plan
 /// checked against the spec it created a box from are taken, and those of another spec are
-/// refused, as many as they may be. One pointer compared per call, once per block at most.
+/// refused, as many as they may be. One pointer compared per call, once per block at most,
+/// which left every box's count the same (`spec/benchmarks.md`, "Measured design choices",
+/// "A box's values tied to its box type").
 #[derive(Debug)]
 pub struct Typed<I, const K: usize> {
     /// The box type of the instance.
@@ -1697,7 +1700,8 @@ impl<I, const K: usize> Typed<I, K> {
 
 /// A box type, shown by its name: its spec's other fields, which a derived form would show,
 /// would put the formatting of every one of them in a module that shows none
-/// (`spec/benchmarks.md`, the engine module's bytes).
+/// (`spec/benchmarks.md`, "Measured design choices", "A box's values tied to its box
+/// type", where its bytes are dated).
 #[derive(Clone, Copy)]
 struct BoxType(&'static ObjectSpec);
 

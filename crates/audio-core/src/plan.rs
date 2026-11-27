@@ -201,8 +201,8 @@ struct Resolved<'patch> {
 /// Resolves the box type and parameter values of a box.
 ///
 /// A subnormal parameter, written or default, is a zero of its sign (decisions 5 and 11 of
-/// `spec/engine-design.md`): flushed before its range is checked, and given to the box as
-/// [`crate::Params`], so that a box is never given one. A parameter of format 1 is its binary32
+/// `spec/engine-design.md`): flushed once, before its range is checked, and given to the box
+/// so in [`crate::Params`], so that a box is never given one. A parameter of format 1 is its binary32
 /// value, exact in binary64, flushed after the document's number is rounded to binary32: a
 /// number in [2^-126 - 2^-150, 2^-126) is 2^-126 there, where binary64 parameters will hold
 /// it as a zero, which the migration from format 1 answers (#3 step 7).
@@ -219,39 +219,32 @@ fn resolve<'patch>(
             node: node.id,
             kind: node.kind.clone(),
         })?;
+    let mut values: Vec<Binary64> = spec
+        .params()
+        .iter()
+        .map(|param| Binary64::new(param.default_value).as_parameter())
+        .collect();
     for (name, &value) in &node.params {
-        let param = spec
+        let (param, slot) = spec
             .params()
             .iter()
-            .find(|param| param.name == name)
+            .zip(values.iter_mut())
+            .find(|(param, _)| param.name == name)
             .ok_or_else(|| CoreError::UnknownParam {
                 node: node.id,
                 name: name.clone(),
             })?;
-        if !param.accepts(f64::from(value)) {
-            return Err(CoreError::ParamOutOfRange {
+        *slot = param
+            .checked(Binary64::new(f64::from(value)))
+            .ok_or_else(|| CoreError::ParamOutOfRange {
                 node: node.id,
                 name: name.clone(),
                 value: value.to_bits(),
                 minimum: param.minimum.to_bits(),
                 maximum: param.maximum.to_bits(),
-            });
-        }
+            })?;
     }
-    let params = ParamValues::flushed(
-        spec,
-        spec.params()
-            .iter()
-            .map(|param| {
-                Binary64::new(
-                    node.params
-                        .get(param.name)
-                        .map_or(param.default_value, |&value| f64::from(value)),
-                )
-                .as_parameter()
-            })
-            .collect(),
-    );
+    let params = ParamValues::flushed(spec, values);
     Ok(Resolved {
         node,
         params,
