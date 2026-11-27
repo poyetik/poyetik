@@ -1521,6 +1521,37 @@ pub mod host {
     }
 }
 
+/// A binary64 number an error shows, by its bits: as Rust's `Debug` writes it, but a NaN
+/// with its bits, since `Debug` writes every NaN alike.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Shown(pub(crate) u64);
+
+impl fmt::Display for Shown {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let number = f64::from_bits(self.0);
+        if number.is_nan() {
+            write!(f, "NaN (0x{:016X})", self.0)
+        } else {
+            write!(f, "{number:?}")
+        }
+    }
+}
+
+/// A binary32 number an error shows, by its bits: as [`Shown`] shows a binary64 one.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Shown32(pub(crate) u32);
+
+impl fmt::Display for Shown32 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let number = f32::from_bits(self.0);
+        if number.is_nan() {
+            write!(f, "NaN (0x{:08X})", self.0)
+        } else {
+            write!(f, "{:?}", f64::from(number))
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "math_tests.rs"]
 mod tests;

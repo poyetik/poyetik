@@ -10,6 +10,7 @@ use core::fmt;
 use core::num::NonZeroU32;
 
 use crate::abi::address;
+use crate::math::Shown;
 use crate::object::range_rule;
 use crate::{Bound, RangeRule};
 use crate::{BoxMode, Capability};
@@ -750,7 +751,7 @@ pub enum Fault {
 
 impl fmt::Display for Fault {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let number = f64::from_bits;
+        let number = Shown;
         match *self {
             Self::Truncated => f.write_str("the bytes end inside it"),
             Self::Trailing { bytes } => write!(f, "{bytes} byte(s) follow the last field"),
@@ -789,27 +790,26 @@ impl fmt::Display for Fault {
                 match rule {
                     RangeRule::NotFinite(which) => {
                         let (word, bound) = bound(which);
-                        write!(f, "the {word} {bound:?} is not finite")
+                        write!(f, "the {word} {bound} is not finite")
                     }
                     RangeRule::Unreachable(which) => {
                         let (word, bound) = bound(which);
                         write!(
                             f,
-                            "the {word} {bound:?} is below 2^-126 in magnitude but not zero: no \
+                            "the {word} {bound} is below 2^-126 in magnitude but not zero: no \
                              value reaches it"
                         )
                     }
-                    RangeRule::Reversed => write!(
-                        f,
-                        "the minimum {minimum:?} is above the maximum {maximum:?}"
-                    ),
+                    RangeRule::Reversed => {
+                        write!(f, "the minimum {minimum} is above the maximum {maximum}")
+                    }
                     RangeRule::Width => write!(
                         f,
-                        "the width, {maximum:?} less {minimum:?}, is not finite in binary64"
+                        "the width, {maximum} less {minimum}, is not finite in binary64"
                     ),
                     RangeRule::Default => write!(
                         f,
-                        "the default {:?}, flushed, is not within [{minimum:?}, {maximum:?}]",
+                        "the default {}, flushed, is not within [{minimum}, {maximum}]",
                         number(value)
                     ),
                 }

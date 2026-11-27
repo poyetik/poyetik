@@ -1102,7 +1102,7 @@ fn says_the_values_of_a_parameter_it_refuses() {
                 RangeRule::NotFinite(Bound::Maximum),
                 [0.0_f64, 0.0_f64, f64::NAN],
             ),
-            "parameter 0, its values: the maximum NaN is not finite",
+            "parameter 0, its values: the maximum NaN (0x7FF8000000000000) is not finite",
         ),
         (
             param_at(1, Part::Values),
@@ -1136,7 +1136,18 @@ fn says_the_values_of_a_parameter_it_refuses() {
         (
             param_at(0, Part::Values),
             range(RangeRule::Default, [f64::NAN, 0.0_f64, 1.0_f64]),
-            "parameter 0, its values: the default NaN, flushed, is not within [0.0, 1.0]",
+            "parameter 0, its values: the default NaN (0x7FF8000000000000), flushed, is not \
+             within [0.0, 1.0]",
+        ),
+        (
+            // Every NaN said by its bits, the sign and a payload of a signaling one included
+            // (finding D2-3 of the third deep review of #12 block 3).
+            param_at(0, Part::Values),
+            range(
+                RangeRule::NotFinite(Bound::Minimum),
+                [0.0_f64, f64::from_bits(0xFFF0_0000_0000_0001), 1.0_f64],
+            ),
+            "parameter 0, its values: the minimum NaN (0xFFF0000000000001) is not finite",
         ),
     ] {
         assert_eq!(

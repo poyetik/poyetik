@@ -779,9 +779,9 @@ fn rejects_out_of_range_parameters<S: Bits>() {
             Err(CoreError::ParamOutOfRange {
                 node: NodeId(1),
                 name: String::from("value"),
-                value,
-                minimum: -10.0_f64,
-                maximum: 10.0_f64,
+                value: value.to_bits(),
+                minimum: (-10.0_f64).to_bits(),
+                maximum: 10.0_f64.to_bits(),
             }),
             "{value} is out of range"
         );
@@ -794,7 +794,7 @@ fn rejects_out_of_range_parameters<S: Bits>() {
         nan.map(|_| ())
             .map_err(|refused| alloc::format!("{refused}")),
         Err(String::from(
-            "box 1: parameter \"value\": NaN is not within [-10.0, 10.0]"
+            "box 1: parameter \"value\": NaN (0x7FC00000) is not within [-10.0, 10.0]"
         )),
         "NaN is rejected"
     );
@@ -858,9 +858,9 @@ fn treats_subnormal_parameters_as_zero<S: Bits>() {
         Err(CoreError::ParamOutOfRange {
             node: NodeId(1),
             name: String::from("value"),
-            value: 1.0e-40,
-            minimum: 1.0_f64,
-            maximum: 2.0_f64,
+            value: 1.0e-40_f32.to_bits(),
+            minimum: 1.0_f64.to_bits(),
+            maximum: 2.0_f64.to_bits(),
         }),
         "zero is below the range"
     );

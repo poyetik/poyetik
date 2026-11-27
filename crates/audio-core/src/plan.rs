@@ -231,9 +231,9 @@ fn resolve<'patch>(
             return Err(CoreError::ParamOutOfRange {
                 node: node.id,
                 name: name.clone(),
-                value,
-                minimum: param.minimum,
-                maximum: param.maximum,
+                value: value.to_bits(),
+                minimum: param.minimum.to_bits(),
+                maximum: param.maximum.to_bits(),
             });
         }
     }

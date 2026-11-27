@@ -57,9 +57,9 @@ fn describes_every_error() {
             CoreError::ParamOutOfRange {
                 node: NodeId(5),
                 name: String::from("gain"),
-                value: 1.5,
-                minimum: -0.25_f64,
-                maximum: 1.0_f64,
+                value: 1.5_f32.to_bits(),
+                minimum: (-0.25_f64).to_bits(),
+                maximum: 1.0_f64.to_bits(),
             },
             "box 5: parameter \"gain\": 1.5 is not within [-0.25, 1.0]",
         ),
@@ -69,9 +69,9 @@ fn describes_every_error() {
             CoreError::ParamOutOfRange {
                 node: NodeId(5),
                 name: String::from("gain"),
-                value: 0.1,
-                minimum: 0.0_f64,
-                maximum: 0.1_f64,
+                value: 0.1_f32.to_bits(),
+                minimum: 0.0_f64.to_bits(),
+                maximum: 0.1_f64.to_bits(),
             },
             "box 5: parameter \"gain\": 0.10000000149011612 is not within [0.0, 0.1]",
         ),
@@ -175,4 +175,21 @@ fn describes_the_errors_of_hosts_and_modes() {
         assert_eq!(error.to_string(), message, "message of {error:?}");
         assert!(!repeats_a_word(message), "{message} repeats a word");
     }
+}
+
+/// A refused value said by its bits when it is a NaN, its payload and its sign included,
+/// and a bound of -0 by its sign (finding D2-3 of the third deep review of #12 block 3).
+#[test]
+fn says_a_refused_nan_by_its_bits() {
+    assert_eq!(
+        CoreError::ParamOutOfRange {
+            node: NodeId(5),
+            name: String::from("gain"),
+            value: 0xFFC0_0001,
+            minimum: (-0.0_f64).to_bits(),
+            maximum: 0.1_f64.to_bits(),
+        }
+        .to_string(),
+        "box 5: parameter \"gain\": NaN (0xFFC00001) is not within [-0.0, 0.1]"
+    );
 }

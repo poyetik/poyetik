@@ -343,8 +343,8 @@ fn takes_values_within_their_range_only_flushed_first() {
                 kind: "two~",
                 name,
                 bits: refused.to_bits(),
-                minimum,
-                maximum,
+                minimum: minimum.to_bits(),
+                maximum: maximum.to_bits(),
             }),
             "{first} and {second}"
         );
@@ -356,12 +356,61 @@ fn takes_values_within_their_range_only_flushed_first() {
                 kind: "two~",
                 name: "b",
                 bits: 20_000.5_f64.to_bits(),
-                minimum: -0.5_f64,
-                maximum: 20_000.0_f64,
+                minimum: (-0.5_f64).to_bits(),
+                maximum: 20_000.0_f64.to_bits(),
             }
         ),
         "parameter \"b\" of box type \"two~\": 20000.5 is not within [-0.5, 20000.0]",
         "said"
+    );
+}
+
+/// A refusal holds its numbers by their bits: a bound of -0 is not one of +0, which compare
+/// equal as numbers, and each NaN is said by its bits, its sign and payload included
+/// (finding D2-3 of the third deep review of #12 block 3).
+#[test]
+fn holds_and_says_its_numbers_by_their_bits() {
+    let refusal = |bits: u64, minimum: f64| ParamError::OutOfRange {
+        kind: "two~",
+        name: "a",
+        bits,
+        minimum: minimum.to_bits(),
+        maximum: 1.0_f64.to_bits(),
+    };
+    assert_ne!(
+        refusal(2.0_f64.to_bits(), -0.0_f64),
+        refusal(2.0_f64.to_bits(), 0.0_f64),
+        "zeros of two signs told apart"
+    );
+    for (bits, said) in [
+        (
+            0x7FF4_0000_0000_0000,
+            "parameter \"a\" of box type \"two~\": NaN (0x7FF4000000000000) is not within \
+             [-0.0, 1.0]",
+        ),
+        (
+            0xFFF8_0000_0000_0001,
+            "parameter \"a\" of box type \"two~\": NaN (0xFFF8000000000001) is not within \
+             [-0.0, 1.0]",
+        ),
+    ] {
+        assert_eq!(format!("{}", refusal(bits, -0.0_f64)), said, "{bits:#x}");
+    }
+    assert_eq!(
+        format!(
+            "{}",
+            ParamError::DrivenOutOfRange {
+                kind: "two~",
+                name: "a",
+                frame: 3,
+                bits: 0x7FF0_0000_0000_0001,
+                minimum: (-0.0_f64).to_bits(),
+                maximum: 1.0_f64.to_bits(),
+            }
+        ),
+        "parameter \"a\" of box type \"two~\", frame 3: NaN (0x7FF0000000000001) is not \
+         within [-0.0, 1.0]",
+        "driven"
     );
 }
 
@@ -381,7 +430,7 @@ fn says_each_refusal_as_it_was_given() {
             ParamValues::of(&TWO, &[Binary64::ZERO]).map(|_| ()),
         ),
         (
-            "parameter \"a\" of box type \"two~\": NaN is not within [-1.0, 2.0]",
+            "parameter \"a\" of box type \"two~\": NaN (0x7FF8000000000000) is not within [-1.0, 2.0]",
             ParamValues::of(&TWO, &[Binary64::new(f64::NAN), Binary64::ZERO]).map(|_| ()),
         ),
         (
@@ -393,7 +442,7 @@ fn says_each_refusal_as_it_was_given() {
             DrivenValues::of(&TWO, vec![nothing; 3]).map(|_| ()),
         ),
         (
-            "parameter \"a\" of box type \"two~\", frame 40: NaN is not within [-1.0, 2.0]",
+            "parameter \"a\" of box type \"two~\", frame 40: NaN (0x7FF8000000000000) is not within [-1.0, 2.0]",
             DrivenValues::of(&TWO, vec![block, nothing]).map(|_| ()),
         ),
         (
@@ -869,8 +918,8 @@ fn drives_with_values_within_their_range_only_flushed_first() {
                 name: "a",
                 frame,
                 bits: refused.to_bits(),
-                minimum: -1.0_f64,
-                maximum: 2.0_f64,
+                minimum: (-1.0_f64).to_bits(),
+                maximum: 2.0_f64.to_bits(),
             }),
             "{value} at frame {frame}: the first parameter's refusal first"
         );
@@ -892,8 +941,8 @@ fn refuses_the_first_of_two_driven_frames_out_of_range() {
             name: "a",
             frame: 17,
             bits: (-3.0_f64).to_bits(),
-            minimum: -1.0_f64,
-            maximum: 2.0_f64,
+            minimum: (-1.0_f64).to_bits(),
+            maximum: 2.0_f64.to_bits(),
         }),
         "the first of two frames refused"
     );
@@ -906,8 +955,8 @@ fn refuses_the_first_of_two_driven_frames_out_of_range() {
             name: "b",
             frame: 9,
             bits: (-SMALLEST).to_bits(),
-            minimum: 0.0_f64,
-            maximum: 20_000.0_f64,
+            minimum: 0.0_f64.to_bits(),
+            maximum: 20_000.0_f64.to_bits(),
         }),
         "-2^-126, below b's range"
     );

@@ -7,6 +7,7 @@ use alloc::string::String;
 use alloc::vec::Vec;
 use core::fmt;
 
+use crate::math::{Shown, Shown32};
 use crate::{Connection, NodeId, Patch, SampleRate};
 
 /// Why a sample rate, a patch, a plan or an output stage was rejected.
@@ -46,12 +47,12 @@ pub enum CoreError {
         node: NodeId,
         /// The parameter.
         name: String,
-        /// The rejected value.
-        value: f32,
-        /// The parameter's lowest accepted value.
-        minimum: f64,
-        /// The parameter's highest accepted value.
-        maximum: f64,
+        /// The bits of the rejected value.
+        value: u32,
+        /// The bits of the parameter's lowest accepted value.
+        minimum: u64,
+        /// The bits of the parameter's highest accepted value.
+        maximum: u64,
     },
     /// A connection refers to a box that does not exist.
     UnknownNode(NodeId),
@@ -149,8 +150,10 @@ impl fmt::Display for CoreError {
                 maximum,
             } => write!(
                 f,
-                "{node}: parameter \"{name}\": {:?} is not within [{minimum:?}, {maximum:?}]",
-                f64::from(*value)
+                "{node}: parameter \"{name}\": {} is not within [{}, {}]",
+                Shown32(*value),
+                Shown(*minimum),
+                Shown(*maximum)
             ),
             Self::UnknownNode(node) => {
                 write!(f, "a cable refers to {node}, which does not exist")

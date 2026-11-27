@@ -10,7 +10,7 @@ use core::num::NonZeroU32;
 use core::ops::Deref;
 
 use crate::host::Raw as _;
-use crate::math::Constructor;
+use crate::math::{Constructor, Shown};
 use crate::output::silent_blocks;
 use crate::{BLOCK_SIZE, Binary32, Binary64, Block, Sample, SampleRate, flush};
 
@@ -486,10 +486,10 @@ pub enum ParamError {
         name: &'static str,
         /// The bits of the binary64 value refused, as it was given.
         bits: u64,
-        /// The parameter's lowest accepted value.
-        minimum: f64,
-        /// The parameter's highest accepted value.
-        maximum: f64,
+        /// The bits of the parameter's lowest accepted value.
+        minimum: u64,
+        /// The bits of the parameter's highest accepted value.
+        maximum: u64,
     },
     /// A value of a block its parameter's range does not hold once flushed, or not a number
     /// ([`DrivenValues::of`]): the first, in the order of the parameters, then of the frames.
@@ -502,10 +502,10 @@ pub enum ParamError {
         frame: usize,
         /// The bits of the binary64 value refused, as it was given.
         bits: u64,
-        /// The parameter's lowest accepted value.
-        minimum: f64,
-        /// The parameter's highest accepted value.
-        maximum: f64,
+        /// The bits of the parameter's lowest accepted value.
+        minimum: u64,
+        /// The bits of the parameter's highest accepted value.
+        maximum: u64,
     },
 }
 
@@ -536,8 +536,10 @@ impl fmt::Display for ParamError {
                 maximum,
             } => write!(
                 f,
-                "parameter \"{name}\" of box type \"{kind}\": {:?} is not within [{minimum:?}, {maximum:?}]",
-                f64::from_bits(bits)
+                "parameter \"{name}\" of box type \"{kind}\": {} is not within [{}, {}]",
+                Shown(bits),
+                Shown(minimum),
+                Shown(maximum)
             ),
             Self::DrivenOutOfRange {
                 kind,
@@ -548,8 +550,10 @@ impl fmt::Display for ParamError {
                 maximum,
             } => write!(
                 f,
-                "parameter \"{name}\" of box type \"{kind}\", frame {frame}: {:?} is not within [{minimum:?}, {maximum:?}]",
-                f64::from_bits(bits)
+                "parameter \"{name}\" of box type \"{kind}\", frame {frame}: {} is not within [{}, {}]",
+                Shown(bits),
+                Shown(minimum),
+                Shown(maximum)
             ),
         }
     }
@@ -585,8 +589,8 @@ impl ParamValues {
                     kind: spec.name,
                     name: param.name,
                     bits: value.raw().to_bits(),
-                    minimum: param.minimum,
-                    maximum: param.maximum,
+                    minimum: param.minimum.to_bits(),
+                    maximum: param.maximum.to_bits(),
                 })
             })
             .collect::<Result<_, _>>()
@@ -703,8 +707,8 @@ impl<const N: usize> DrivenValues<N> {
                         name: param.name,
                         frame,
                         bits: value.raw().to_bits(),
-                        minimum: param.minimum,
-                        maximum: param.maximum,
+                        minimum: param.minimum.to_bits(),
+                        maximum: param.maximum.to_bits(),
                     })?;
             }
         }
