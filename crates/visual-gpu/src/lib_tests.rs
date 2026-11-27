@@ -463,9 +463,10 @@ fn says_when_the_device_is_lost() {
 fn says_when_the_device_is_lost_while_its_work_is_read() {
     // Destroyed during the wait, after the mapping was asked: wgpu still maps the buffer
     // (its answer is a success), then refuses the view of it, the buffer being destroyed with
-    // the device. A device lost by its driver in that window does the same. wgpu's destroy
-    // only marks the device invalid (wgpu-core 30.0.2 src/device/global.rs:1966), the rest
-    // following in its own code, whatever the back end.
+    // the device. wgpu's destroy only marks the device invalid (wgpu-core 30.0.2
+    // src/device/global.rs:1966), the rest following in its own code, whatever the back end.
+    // A device its driver loses in that window is not tested: no test can make a driver
+    // lose one.
     let mut gpu = gpu();
     gpu.wait = |device| {
         device.destroy();
@@ -475,9 +476,14 @@ fn says_when_the_device_is_lost_while_its_work_is_read() {
         Image::try_new(ImageSize::new(4, 2).expect("a valid size")).expect("room for it");
     let visual = square(ImageRate::new(1, 1).expect("a valid rate"), 1, (1, 1));
     let lost = gpu.render(&visual, ImageIndex(0), &mut image);
-    assert!(
-        matches!(&lost, Err(GpuError::Lost(why)) if why.contains("has been destroyed")),
-        "{lost:?}"
+    // wgpu-core's own words, the same on every back end: the view refused by its validation.
+    assert_eq!(
+        lost,
+        Err(GpuError::Lost(
+            "Buffer view error: Validation Error\n\nCaused by:\n  Buffer with 'readback' label \
+             has been destroyed\n"
+                .to_owned()
+        ))
     );
 }
 
