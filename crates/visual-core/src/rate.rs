@@ -37,6 +37,16 @@ impl ImageRate {
     /// denominator is nonzero, and the rate is from 1 to [`ImageRate::MAX_PER_SECOND`]
     /// images per second.
     pub const fn new(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
+        Self::checked(numerator, denominator)
+    }
+
+    /// [`ImageRate::new`]'s check, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`ImageRate::new`].
+    const fn checked(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
         let rejected = VisualError::InvalidImageRate {
             numerator,
             denominator,
@@ -98,6 +108,16 @@ impl Seconds {
     /// Returns [`VisualError::InvalidSeconds`] unless both terms are nonzero and the
     /// fraction is reduced.
     pub const fn new(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
+        Self::checked(numerator, denominator)
+    }
+
+    /// [`Seconds::new`]'s check, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Seconds::new`].
+    const fn checked(numerator: u32, denominator: u32) -> Result<Self, VisualError> {
         match (NonZeroU32::new(numerator), NonZeroU32::new(denominator)) {
             (Some(top), Some(bottom)) if gcd(numerator, denominator) == 1 => Ok(Self {
                 numerator: top,
@@ -156,6 +176,16 @@ impl ImageRange {
     /// Returns [`VisualError::InvalidImageRange`] when its last image, `first + count − 1`,
     /// would be past image 2⁶⁴ − 1.
     pub fn new(first: ImageIndex, count: u64) -> Result<Self, VisualError> {
+        Self::checked(first, count)
+    }
+
+    /// [`ImageRange::new`]'s check, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`ImageRange::new`].
+    fn checked(first: ImageIndex, count: u64) -> Result<Self, VisualError> {
         // An empty range has no last image; any other ends at `first + count - 1`.
         let ends = count
             .checked_sub(1)

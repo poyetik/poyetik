@@ -41,6 +41,16 @@ impl ImageSize {
     /// [`ImageSize::MAX_SIDE`], and [`VisualError::ImageTooLarge`] when the image has more
     /// than [`ImageSize::MAX_PIXELS`] pixels.
     pub const fn new(width: u32, height: u32) -> Result<Self, VisualError> {
+        Self::checked(width, height)
+    }
+
+    /// [`ImageSize::new`]'s check, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`ImageSize::new`].
+    const fn checked(width: u32, height: u32) -> Result<Self, VisualError> {
         if width == 0 || height == 0 || width > Self::MAX_SIDE || height > Self::MAX_SIDE {
             return Err(VisualError::InvalidImageSize { width, height });
         }
