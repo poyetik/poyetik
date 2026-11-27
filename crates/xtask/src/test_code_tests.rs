@@ -150,8 +150,7 @@ fn refuses_a_reason_naming_a_function_outside_test_code() {
         failed(format!(
             "{UNVIABLE_REVIEWED}:1: names `unsafe_gate_helper_fn` as its reason, which no test \
              code of audio-hash, the mutated crate, defines as a function: a review's reason \
-             names the test that kills its viable variant among the tests cargo-mutants runs, \
-             the mutated crate's"
+             names a test of the mutated crate, the one that kills its viable variant"
         )),
         "a production function named as the test that kills the mutant"
     );
@@ -252,8 +251,7 @@ fn refuses_a_reason_naming_a_test_of_another_crate() {
             failed(format!(
                 "{UNVIABLE_REVIEWED}:1: names `{killer}` as its reason, which no test code of \
                  audio-core, the mutated crate, defines as a function: a review's reason names \
-                 the test that kills its viable variant among the tests cargo-mutants runs, the \
-                 mutated crate's"
+                 a test of the mutated crate, the one that kills its viable variant"
             )),
             "a killer in another crate's test code, which never runs against the mutant: {killer}"
         );

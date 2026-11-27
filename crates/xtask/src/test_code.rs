@@ -46,7 +46,9 @@ pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), 
 ///
 /// # Errors
 ///
-/// Returns every word that names no function, or in a reason no function of test code.
+/// Returns every such word that names no function, or in a reason no function of the test
+/// code of the mutated crate, with its line; and every name of a reason whose file is in no
+/// crate of [`RUST_CRATES`].
 pub fn review_names_gate(file: &str, reviews: &str, sources: &[RustSource]) -> Result<(), Failure> {
     let (functions, tests) = defined_functions(sources);
     let names = |text: &str| function_names(text, 3);
@@ -78,8 +80,8 @@ pub fn review_names_gate(file: &str, reviews: &str, sources: &[RustSource]) -> R
                     problems.push(format!(
                         "{file}:{at}: names `{name}` as its reason, which no test code of \
                          {krate}, the mutated crate, defines as a function: a review's reason \
-                         names the test that kills its viable variant among the tests \
-                         cargo-mutants runs, the mutated crate's"
+                         names a test of the mutated crate, the one that kills its viable \
+                         variant"
                     ));
                 }
             } else {
