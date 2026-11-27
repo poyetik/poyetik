@@ -7,13 +7,12 @@ use alloc::collections::BTreeMap;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::fmt;
-use core::num::NonZeroU32;
 
 use crate::abi::address;
 use crate::math::Shown;
 use crate::object::range_rule;
+use crate::{AlgorithmVersion, BoxMode, Capability};
 use crate::{Bound, RangeRule};
-use crate::{BoxMode, Capability};
 
 /// The longest description a module may give, in bytes: the size a patch document may have
 /// (`spec/patch-format.md`). Provisional (`spec/box-contract.md`, section 4).
@@ -269,7 +268,7 @@ impl<'bytes> DescribedParam<'bytes> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Description<'bytes> {
     /// The version of its algorithm (decision 29).
-    algorithm_version: NonZeroU32,
+    algorithm_version: AlgorithmVersion,
     /// The execution modes it may run in.
     mode: BoxMode,
     /// Its instantaneous response.
@@ -307,7 +306,7 @@ impl<'bytes> Description<'bytes> {
             return Err(reader.refusal(Fault::TooLong { bytes: given }));
         }
         reader.field = Field::AlgorithmVersion;
-        let algorithm_version = NonZeroU32::new(u32::from_le_bytes(reader.take()?))
+        let algorithm_version = AlgorithmVersion::of(u32::from_le_bytes(reader.take()?))
             .ok_or_else(|| reader.refusal(Fault::Zero))?;
         reader.field = Field::Mode;
         let mode = reader.code(|code| match code {
@@ -375,9 +374,10 @@ impl<'bytes> Description<'bytes> {
         }
     }
 
-    /// The version of its algorithm (decision 29).
+    /// The version of its algorithm (decision 29), as a built-in box type's
+    /// ([`crate::ObjectSpec::algorithm_version`]).
     #[must_use]
-    pub const fn algorithm_version(&self) -> NonZeroU32 {
+    pub const fn algorithm_version(&self) -> AlgorithmVersion {
         self.algorithm_version
     }
 

@@ -1309,6 +1309,14 @@ impl AlgorithmVersion {
     pub const fn get(self) -> u32 {
         self.0.get()
     }
+
+    /// The version numbered `number`, if it is one: none for 0, versions counting from 1.
+    pub(crate) const fn of(number: u32) -> Option<Self> {
+        match NonZeroU32::new(number) {
+            Some(version) => Some(Self(version)),
+            None => None,
+        }
+    }
 }
 
 impl fmt::Display for AlgorithmVersion {
