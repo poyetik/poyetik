@@ -2023,7 +2023,7 @@ fn measures_this_gpu_by_its_clock() {
     let least = |size: visual_core::ImageSize, bytes_a_pixel: u64| {
         (u64::from(size.width()) * u64::from(size.height()) * bytes_a_pixel / 100_000).max(1)
     };
-    // A render writes 16 bytes a pixel: 147 ns at 1280x720, 36, 9 and 1 at the sizes only
+    // A render writes 16 bytes a pixel: 147 ns at 1280x720, 1, 9 and 36 at the sizes only
     // shown. A size only shown may come back unmeasured, never a time of 0, idle as under
     // load (`SHOWN`). The checked size and the encoding must be measured.
     assert!(
@@ -2463,7 +2463,7 @@ fn measures_the_square_image_and_sizes_of_the_cost_benchmarks() {
     let suites = Square::new(
         ImageRate::new(60, 1).expect("a valid rate"),
         39_322,
-        Seconds::new(1001, 1000).expect("a cycle"),
+        Seconds::new(1001, 1000).expect("a valid cycle"),
     )
     .expect("a square");
     assert_eq!(MEASURED_SQUARE, suites, "the square measured");
@@ -2598,7 +2598,7 @@ impl super::TimedGpu for Refusing {
     ) -> Result<visual_core::Image, visual_core::VisualError> {
         // An image of one pixel when it is not refused, whatever the size asked: nothing
         // reads it (`timed_render` writes nothing), and one of each measured size, zeroed at
-        // the test profile's opt-level, would cost seconds a run (the real images' sizes:
+        // the test profile's opt-level, would cost seconds over the runs of this test (the real images' sizes:
         // `allocates_the_images_it_measures_at_the_size_asked`).
         match self.refuses() {
             Some(_) => Err(Self::no_room(size, visual_core::Holding::Image)),

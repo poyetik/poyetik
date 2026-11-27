@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `visual_gpu::bench::TimedGpu`, what `visual_gpu::bench::measure` asks of the GPU it measures: whether it has a clock, its name, its timed renders and encodings, and the images it measures them into. `GpuSquare` implements it; it is sealed, so that only this crate does.
-- A visual box law, history (`visual-testkit`): an instance renders each image of the matrix, in order, with the same bits as a fresh instance that renders it alone, so that a box whose bits change once it has rendered anything is caught at any index of the matrix, not only at its ends; the size change law's references are a fresh instance's images again.
+- A visual box law, history (`visual-testkit`): an instance renders each image of the matrix, in order, with the same bits as a fresh instance that renders it alone, so that a box whose bits change once it has rendered anything is caught at any index of the matrix, not only at its ends.
 - `cargo xtask check` refuses, in the `[Unreleased]` section of `CHANGELOG.md`, a kind of change heading repeated or out of Keep a Changelog's order (Added, Changed, Deprecated, Removed, Fixed, Security), as every released section keeps them, naming each such heading with the furthest kind before it.
 
 ### Changed
@@ -20,7 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The visual box laws (`visual_testkit::check_laws`) gave an image the machine could not hold, or a heap operation count refused, as the bare text of the refusal; they now name the pass and the place (rate, size, image index), as a law broken does.
+- The visual box laws (`visual_testkit::check_laws`) gave an image the machine could not hold as the bare text of the refusal; they now name the pass and the place (rate, size, image index), as a law broken does.
 - `visual_gpu::bench::measure`, and the benchmark with it, gave the GPU's refusal of a render or a display encoding as its bare text; it now names the pass and the size refused, as a line of the report does (`render 1280x720: ...`).
 - `cargo xtask check` (its step "Rust doc tests, the error code of each compile_fail checked") took the fixture `crates/xtask/tests/fixtures/doc-codes`'s failure as its pass whenever its error output held the expected error code, even when the fixture succeeded writing output that is not UTF-8 text, or was stopped by a signal; it now needs the fixture to have exited with a code, saying it, and names any other end as not failing on its error code. A command whose output is its result and that writes bytes out of UTF-8 is now reported by its exit, its output kept with those bytes replaced, no longer only as output that is not UTF-8 text.
 

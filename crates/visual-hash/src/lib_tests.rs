@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use alloc::borrow::ToOwned;
 use alloc::format;
 use alloc::string::ToString;
 use alloc::vec::Vec;
@@ -349,14 +350,25 @@ fn hashes_the_bytes_the_specification_lays_out_for_any_values() {
 }
 
 /// A text output that takes as many writes as its count, then refuses every one, keeping
-/// what it took and counting the writes asked.
+/// each write it took and counting the writes asked.
 struct Refusing {
     /// The writes still taken.
     left: usize,
-    /// What it took.
-    taken: alloc::string::String,
+    /// Each write it took, in order.
+    taken: Vec<alloc::string::String>,
     /// Every write asked, refused or not.
     asked: usize,
+}
+
+impl Refusing {
+    /// An output taking `left` writes.
+    const fn taking(left: usize) -> Self {
+        Self {
+            left,
+            taken: Vec::new(),
+            asked: 0,
+        }
+    }
 }
 
 impl core::fmt::Write for Refusing {
@@ -366,7 +378,7 @@ impl core::fmt::Write for Refusing {
             return Err(core::fmt::Error);
         }
         self.left = self.left.saturating_sub(1);
-        self.taken.push_str(text);
+        self.taken.push(text.to_owned());
         Ok(())
     }
 }
@@ -374,42 +386,46 @@ impl core::fmt::Write for Refusing {
 #[test]
 fn stops_showing_at_the_first_write_refused() {
     use core::fmt::Write as _;
-    let shown = hash(size(1, 1), &[]);
-    let digits = shown.to_string();
-    // Each byte's two digits are one write: each write refused in turn, nothing is written
-    // after it, and what was taken is the bytes before it.
-    let writes = digits.len() / 2;
-    for left in 0..writes {
-        let mut output = Refusing {
-            left,
-            taken: alloc::string::String::new(),
-            asked: 0,
-        };
+    // A hash, and one with a byte below 0x10, whose padding 0 the formatter writes apart.
+    let low = (1..=64)
+        .map(|width| hash(size(width, 1), &[]))
+        .find(|shown| {
+            shown
+                .to_string()
+                .as_bytes()
+                .chunks(2)
+                .any(|digits| digits.first() == Some(&b'0'))
+        })
+        .expect("a hash with a byte below 0x10");
+    for shown in [hash(size(1, 1), &[]), low] {
+        // The writes of the whole hash: every one taken, its digits in order.
+        let mut whole = Refusing::taking(usize::MAX);
+        assert_eq!(write!(whole, "{shown}"), Ok(()), "every write taken");
         assert_eq!(
-            write!(output, "{shown}"),
-            Err(core::fmt::Error),
-            "write {left} refused"
+            whole.taken.concat(),
+            shown.to_string(),
+            "the digits, in order"
         );
-        assert_eq!(
-            output.taken,
-            digits.get(..2 * left).unwrap_or_default(),
-            "write {left} refused: the bytes before it"
-        );
-        assert_eq!(
-            output.asked,
-            left + 1,
-            "write {left} refused: none after it"
-        );
+        assert_eq!(whole.asked, whole.taken.len(), "each write taken");
+        // Each write refused in turn: nothing is written after it, and what was taken is
+        // the writes before it.
+        for left in 0..whole.taken.len() {
+            let mut output = Refusing::taking(left);
+            assert_eq!(
+                write!(output, "{shown}"),
+                Err(core::fmt::Error),
+                "write {left} refused"
+            );
+            assert_eq!(
+                output.taken,
+                whole.taken.get(..left).unwrap_or_default(),
+                "write {left} refused: the writes before it"
+            );
+            assert_eq!(
+                output.asked,
+                left + 1,
+                "write {left} refused: none after it"
+            );
+        }
     }
-    let mut whole = Refusing {
-        left: writes,
-        taken: alloc::string::String::new(),
-        asked: 0,
-    };
-    assert_eq!(write!(whole, "{shown}"), Ok(()), "every write taken");
-    assert_eq!(
-        (whole.taken, whole.asked),
-        (digits, writes),
-        "one write a byte"
-    );
 }

@@ -1255,7 +1255,7 @@
           "done": false
         },
         {
-          "title": "Every validating constructor proven by mutation: cargo-mutants never mutates a function named new in an impl, so each new becomes one expression delegating to a function of another name, which it mutates, and a gate refuses a new holding more. Sites, counted as every fn new in a crate's src outside its test files: audio-core 16, audio-host 3, audio-boxes 1, audio-cli 1, visual-core 4, visual-gpu 3, visual-host 2, visual-boxes 1, visual-hash 1, xtask 1. First confirm with cargo mutants --list that the delegated function's mutants are listed",
+          "title": "Every constructor named new proven by mutation, validating or not: cargo-mutants never mutates a function named new in an impl, so each new becomes one expression delegating to a function of another name, which it mutates, and a gate refuses a new holding more. Sites, counted as every fn new in a crate's src outside its test files: audio-core 16, audio-host 3, audio-boxes 1, audio-cli 1, visual-core 4, visual-gpu 3, visual-host 2, visual-boxes 1, visual-hash 1, xtask 1. First confirm with cargo mutants --list that the delegated function's mutants are listed",
           "done": false
         }
       ]
@@ -1817,11 +1817,11 @@
           "done": false
         },
         {
-          "title": "Deep review: every finding analyzed and applied, then a fresh review",
+          "title": "The preflight refuses every variable that changes which GPU driver the tests run on: the Vulkan loader's driver filters and layers, and the software renderer's own, besides the driver lists it already refuses",
           "done": false
         },
         {
-          "title": "The preflight refuses every variable that changes which GPU driver the tests run on: the Vulkan loader's driver filters and layers, and the software renderer's own, besides the driver lists it already refuses",
+          "title": "Deep review: every finding analyzed and applied, then a fresh review",
           "done": false
         }
       ]
