@@ -377,14 +377,44 @@ fn keeps_a_message_whole_or_refuses_what_does_not_fit() {
     let mut message = super::Message::EMPTY;
     assert_eq!(message.text(), "", "empty");
     assert_eq!(message.write_str("refused"), Ok(()), "a piece that fits");
-    let long = "x".repeat(super::MESSAGE_BYTES);
+    let written = "refused".len();
+    // From a message already written to: a piece one byte too long refused, the message
+    // kept; then one that fills it exactly taken; then an empty piece on the full message.
+    let rest = super::MESSAGE_BYTES - written;
     assert_eq!(
-        message.write_str(&long),
+        message.write_str(&"x".repeat(rest + 1)),
+        Err(core::fmt::Error),
+        "one byte too many after a piece"
+    );
+    assert_eq!(message.text(), "refused", "what was written is kept");
+    assert_eq!(
+        message.write_str(&"x".repeat(rest)),
+        Ok(()),
+        "a piece that fills it exactly"
+    );
+    let filled = format!("refused{}", "x".repeat(rest));
+    assert_eq!(message.text(), filled, "all of it");
+    assert_eq!(
+        message.write_str(""),
+        Ok(()),
+        "an empty piece on a full message"
+    );
+    assert_eq!(message.text(), filled, "unchanged");
+    assert_eq!(
+        message.write_str("x"),
+        Err(core::fmt::Error),
+        "a byte on a full message"
+    );
+    assert_eq!(message.text(), filled, "still unchanged");
+    // From an empty message: the most it holds taken, one byte more refused.
+    let long = "x".repeat(super::MESSAGE_BYTES);
+    let mut full = super::Message::EMPTY;
+    assert_eq!(
+        full.write_str(&format!("{long}x")),
         Err(core::fmt::Error),
         "one byte too many"
     );
-    assert_eq!(message.text(), "refused", "what was written is kept");
-    let mut full = super::Message::EMPTY;
+    assert_eq!(full.text(), "", "nothing written");
     assert_eq!(full.write_str(&long), Ok(()), "exactly the most it holds");
     assert_eq!(full.text().len(), super::MESSAGE_BYTES, "all of it");
 }
