@@ -41,7 +41,7 @@ pub enum CoreError {
         /// The unknown parameter.
         name: String,
     },
-    /// A parameter value is outside its range (or not a number).
+    /// A parameter value its range does not hold once flushed, or not a number.
     ParamOutOfRange {
         /// The box.
         node: NodeId,

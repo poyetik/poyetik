@@ -1,6 +1,6 @@
 //! Laws of reading what a module gives (`spec/box-contract.md`, sections 4 and 5), over random
 //! and mutated bytes and integers: the deterministic start of fuzzing (coverage-guided fuzzing
-//! comes with #3 step 4).
+//! of the module readers comes with #12 step 40).
 //!
 //! Whatever the bytes, `Description::read` and `Header::read` return `Ok` or `Err`, never
 //! panic, and use the heap no more than the bytes given allow; a description accepted is

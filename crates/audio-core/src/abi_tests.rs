@@ -183,7 +183,7 @@ fn says_why_a_version_is_refused() {
             known: 3
         }
         .to_string(),
-        "contract version 0.2: before 1.0 this engine knows 0.3 alone",
+        "contract version 0.2: before 1.0 this engine accepts 0.3 alone",
         "not frozen"
     );
     let version = ContractVersion::new(2, 6);

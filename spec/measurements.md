@@ -101,7 +101,7 @@ These hold for every such signal, whatever the shape of its error: `every_signal
 
 ## Thresholds of `osc~`
 
-The thresholds of `osc~` are the bounds above for `A = 1` and `ε` the error bound per sample its tests derive and prove against an exact reference, in each **render format** (`engine-design.md`, decision 10; `bound` in `crates/audio-boxes/src/osc_tests.rs`, `sineErrorBound` in the oracle, both read the vectors of `sine_error_bounds`, each with its `format`). Two terms are common to every format: the phase accumulated in `f64` in both precisions, `2π·N·2^-52` (in each regime of cycles per sample below 4), and evaluating the sine, `2^-48` (the angle `2π·phase` in binary64 and an ulp of `libm`'s sine). The third term is how the sine is computed and given:
+The thresholds of `osc~` are the bounds above for `A = 1` and `ε` the error bound per sample its tests derive and prove against an exact reference, in each **render format** (`engine-design.md`, decision 10; `bound` in `crates/audio-boxes/src/osc_tests.rs`, `sineErrorBound` in the oracle, both read the vectors of `sine_error_bounds`, each with its `format`). Two terms are common to every format: the phase accumulated in `f64` in both precisions, `2π·N·2^-52` (in each regime of cycles per sample below 4, from phase 0 at one frequency: a frequency changed while it runs, its phase kept, is a regime of its own, bounded with #12 step 41), and evaluating the sine, `2^-48` (the angle `2π·phase` in binary64 and an ulp of `libm`'s sine). The third term is how the sine is computed and given:
 
 | Format | Third term | Why | THD+N bound | SFDR bound |
 |---|---|---|---|---|

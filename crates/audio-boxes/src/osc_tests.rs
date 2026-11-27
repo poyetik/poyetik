@@ -70,6 +70,10 @@ fn output_term(format: RenderFormat) -> f64 {
 ///   - from 4 cycles on, rounding `cycles` costs up to 2^-51: the bound would no
 ///     longer hold. The parameter range keeps `cycles` below 4 at every supported
 ///     rate, checked by `stays_below_four_cycles_per_sample`;
+///
+///   each from phase 0 at one frequency: a frequency changed while it runs keeps the
+///   phase (`tune`), whose additions then round in a regime of their own, bounded with
+///   #12 step 41;
 /// - evaluating the sine: 2^-48 (the angle `2π · phase` in binary64, within 2^-50.3,
 ///   and `libm::sin`'s error, within an ulp).
 fn bound(format: RenderFormat, frames: u32) -> f64 {

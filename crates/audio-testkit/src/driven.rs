@@ -429,11 +429,10 @@ fn reference<S: LawSample, const R: usize>(
     })
 }
 
-/// The run as the engine renders it, in blocks of [`BLOCK_SIZE`] frames: by the steady body the blocks
-/// where its values stay, given them before it unless they are kept ([`Body::Kept`]), by the
-/// driven body the others. The outputs
-/// are set to a NaN before each block, which a sample left unwritten keeps. Also returns the
-/// heap operations.
+/// The run as the engine renders it, in blocks of [`BLOCK_SIZE`] frames: by the steady body
+/// the blocks where its values stay, given them before it unless they are kept
+/// ([`Body::Kept`]), by the driven body the others. The outputs are set to a NaN before
+/// each block, which a sample left unwritten keeps. Also returns the heap operations.
 ///
 /// # Errors
 ///
@@ -628,9 +627,10 @@ fn check_precision<S: LawSample, const R: usize>(
 ///
 /// A box type without parameters has one body: nothing is checked. What these laws do not
 /// see, each with the step that treats it:
-/// - **a box type known only by its spec** (its factory): its smallest engine block is
-///   the first of [`audio_core::ENGINE_BLOCKS`], so with `R` at that one the values change
-///   every `R` frames only, and a body wrong inside them passes (any box type loaded at run time: roadmap #12 step 40);
+/// - **a box type known only by its spec** (its factory): its smallest engine block is the
+///   first of [`audio_core::ENGINE_BLOCKS`], so with `R` at that one the values change
+///   every `R` frames only, and a body wrong inside them passes (any box type loaded at run
+///   time: roadmap #12 step 40);
 /// - **a box with parameters and no outlet**: its bits are read by the plan, so there is
 ///   nothing to compare: it is refused, until what it answers with can be read (roadmap #12
 ///   step 15);

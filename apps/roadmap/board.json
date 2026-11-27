@@ -1369,12 +1369,12 @@
           "block": 3
         },
         {
-          "title": "Typed parameter access: a box type receives exactly its parameters, as an array of its own length, so that no box keeps a fallback default of its own (osc~'s 440 Hz, #24 step 6); and a second body for driven parameters, held to the same bits as the steady one by a law over every registered box",
+          "title": "Typed parameter access: a box type receives exactly its parameters, as an array of its own length, so that no box keeps a fallback default of its own (osc~'s 440 Hz); and a second body for driven parameters, held to the same bits as the steady one by a law over every registered box",
           "done": false,
           "block": 3
         },
         {
-          "title": "Messages and rates, after step 40, with step 41: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE); the driven-body law comparing a box's messages too, a box with parameters and no outlet included; decision 5's measurements of a driven parameter (zipper noise under its changes, as spec/measurements.md defines it); where the boundary clamps, holds or flushes a value given outside a parameter's domain (a NaN, an infinity, a value beyond its range), each case tested",
+          "title": "Messages and rates, after step 40, with step 41: every parameter driven by messages or by an audio-rate signal; a total order of messages within a frame; MIDI input as timestamped events (MIDI 2.0 packets, MPE); the driven-body law comparing a box's messages too, a box with parameters and no outlet included; decision 5's measurements of a driven parameter (zipper noise under its changes, as spec/measurements.md defines it, and the level of its spurs against a derived threshold; a ramp whose last frame is its target; changes across host-buffer boundaries); where the boundary clamps, holds or flushes a value given outside a parameter's domain (a NaN, an infinity, a value beyond its range), each case tested",
           "done": false,
           "block": 4
         },

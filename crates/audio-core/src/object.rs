@@ -104,10 +104,11 @@ impl ParamSpec {
     /// would reach such a bound, and every comparison with the range is of numbers at least
     /// 2^-126 in magnitude or zeros, which no floating-point mode of a host changes),
     /// [`RangeRule::Reversed`] unless `minimum` is at most `maximum`, [`RangeRule::Width`]
-    /// unless the range's width, `maximum` less `minimum`, is finite (a ramp across the range
-    /// computes it), and [`RangeRule::Default`] unless `default_value`, flushed as a plan flushes it (below 2^-126 in magnitude, a zero of its sign), is
-    /// within them, so that every parameter of every box type has a finite range holding its
-    /// default, as a plan, the box laws and the fingerprint battery give it.
+    /// unless the range's width, `maximum` less `minimum`, is finite (a ramp across the
+    /// range computes it), and [`RangeRule::Default`] unless `default_value`, flushed as a
+    /// plan flushes it (below 2^-126 in magnitude, a zero of its sign), is within them, so
+    /// that every parameter of every box type has a finite range holding its default, as a
+    /// plan, the box laws and the fingerprint battery give it.
     pub const fn new(
         name: &'static str,
         description: &'static str,
@@ -224,10 +225,11 @@ impl RangeRule {
 }
 
 /// The one rule of a parameter's range, for every box type, built in ([`ParamSpec::new`])
-/// or described by a module (`spec/box-contract.md`): `minimum` and `maximum` finite, neither
-/// below 2^-126 in magnitude but zero (no value reaches such a bound once flushed), in
-/// order as IEEE 754 compares numbers, a zero of either sign equal to the other; the width, `maximum` less `minimum`, finite (a ramp across the range computes
-/// it); `default_value`, flushed as a plan flushes it, within them. Decided by the faults in
+/// or described by a module (`spec/box-contract.md`): `minimum` and `maximum` finite,
+/// neither below 2^-126 in magnitude but zero (no value reaches such a bound once flushed),
+/// in order as IEEE 754 compares numbers, a zero of either sign equal to the other; the
+/// width, `maximum` less `minimum`, finite (a ramp across the range computes it);
+/// `default_value`, flushed as a plan flushes it, within them. Decided by the faults in
 /// that order (the minimum's before the maximum's), so that a range refused for two reasons
 /// names the first.
 ///
@@ -308,7 +310,7 @@ const fn reachable(bound: f64) -> bool {
 ///
 /// [`ParamSpec::new`] evaluated in a `const` block, so that a parameter whose range is not
 /// finite, or whose default lies outside it, does not compile, the compiler's error saying
-/// which of the two ([`ParamSpecError`]). The way to write the parameters of a static box
+/// which rule it breaks ([`ParamSpecError`]). The way to write the parameters of a static box
 /// type:
 ///
 /// ```
@@ -382,17 +384,17 @@ macro_rules! param {
 /// against: one per entry of its [`ObjectSpec::params`], in its order, each within its
 /// parameter's range.
 ///
-/// In binary64 whatever the precision of the render (`spec/engine-design.md`, decision
-/// 10), and never below 2^-126 in magnitude but zero: such a value is a zero of its sign
+/// In binary64 whatever the precision of the render (`spec/engine-design.md`, decision 10),
+/// and never below 2^-126 in magnitude but zero: such a value is a zero of its sign
 /// (decisions 5 and 11), the flush a plan applies to a patch's parameters. Outside the
-/// engine, only [`ParamValues::of`] and [`ParamValues::defaults`] build one, from the box
-/// type's spec, which it keeps ([`ParamValues::spec`]): an instance is created from the
-/// values alone ([`Dispatch::create`]), of the box type they were checked against, and given
-/// only values of its own box type afterwards ([`BoxInstance::receive`], [`Typed`]), so a
-/// box can rely on all of it, as [`Values`] and [`Driving`] hand it, whoever created it (the
-/// plan, the box laws, the fingerprint battery or a host), as long as an instance is tied to
-/// the box type that created it (the precondition of [`Typed::new`]). No unchecked
-/// constructor is public:
+/// engine, only [`ParamValues::of`], [`ParamValues::within`] and [`ParamValues::defaults`]
+/// build one, from the box type's spec, which it keeps ([`ParamValues::spec`]): an instance
+/// is created from the values alone ([`Dispatch::create`]), of the box type they were
+/// checked against, and given only values of its own box type afterwards
+/// ([`BoxInstance::receive`], [`Typed`]), so a box can rely on all of it, as [`Values`] and
+/// [`Driving`] hand it, whoever created it (the plan, the box laws, the fingerprint battery
+/// or a host), as long as an instance is tied to the box type that created it (the
+/// precondition of [`Typed::new`]). No unchecked constructor is public:
 ///
 /// ```compile_fail,E0599
 /// let _values = audio_core::ParamValues::new([audio_core::Binary64::new(1e9)]);
@@ -612,11 +614,15 @@ impl ParamValues {
     }
 
     /// The parameter values of the box type `spec` that `pick` picks, called once per
-    /// parameter, in order: each value its parameter's range accepts ([`ParamSpec::accepts`]), else the
-    /// parameter's default, which no range refuses, each flushed as a plan flushes it. So
-    /// that a caller trying values of every range (the box laws, the fingerprint battery)
-    /// is given values of the box type whatever it picks, with no error to handle: a value
-    /// picked outside a range, or not a number, is its default, tried anyway.
+    /// parameter, in order: each value its parameter's range accepts
+    /// ([`ParamSpec::accepts`]), else the parameter's default, which no range refuses, each
+    /// flushed as a plan flushes it. So that a caller trying values of every range (the box
+    /// laws, the fingerprint battery) is given values of the box type whatever it picks,
+    /// with no error to handle: a value picked outside a range, or not a number, is its
+    /// default, tried anyway. That is a rule of the callers trying values, not the
+    /// engine's: a plan refuses a patch's value outside its range, and a value given while
+    /// the engine runs is clamped or held (decision 5 of `spec/engine-design.md`, #12 step
+    /// 15).
     #[must_use]
     pub fn within(spec: &'static ObjectSpec, mut pick: impl FnMut(&ParamSpec) -> f64) -> Self {
         Self {
@@ -643,7 +649,8 @@ impl ParamValues {
         self.spec
     }
 
-    /// The values, as a box is given them.
+    /// The values, borrowed, as a box is created with them and given them afterwards
+    /// ([`Params::array`]).
     #[must_use]
     pub fn params(&self) -> Params<'_> {
         Params(&self.values)
@@ -720,8 +727,9 @@ impl<const N: usize> DrivenValues<N> {
     /// frame within each: as [`ParamValues::within`] takes a value, the value if its
     /// parameter's range accepts it, else the parameter's default, each flushed. So that a
     /// caller trying values of every range (the box laws) drives a box with values of its
-    /// box type whatever it picks, with no error to handle. Made on the heap, at any engine
-    /// block: an array of the largest would not fit a thread's stack.
+    /// box type whatever it picks, with no error to handle; a rule of those callers, not the
+    /// engine's, as [`ParamValues::within`] says. Made on the heap, at any engine block: an
+    /// array of the largest would not fit a thread's stack.
     #[must_use]
     pub fn within(
         spec: &'static ObjectSpec,
@@ -743,7 +751,8 @@ impl<const N: usize> DrivenValues<N> {
     }
 }
 
-/// The parameter values a box is created with, borrowed from [`ParamValues`].
+/// The parameter values of a box, borrowed from [`ParamValues`]: those it is created with,
+/// and those it is given afterwards ([`BoxInstance::receive`]).
 ///
 /// They keep its promise: one per parameter of the box type, in order, each within its
 /// range, in binary64, none below 2^-126 in magnitude but zero. Passed by value, as cheap

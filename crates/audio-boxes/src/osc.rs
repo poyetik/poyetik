@@ -82,7 +82,10 @@ impl Osc {
         self.increment = cycles - cycles.floor();
     }
 
-    /// The next sample: the one arithmetic of both bodies.
+    /// The next sample: the one arithmetic of both bodies. A frame gives the sine of the
+    /// phase it starts at, then moves the phase by the increment, so that the frequency
+    /// set at a frame (`tune`) moves the phase from the next frame on and no sample
+    /// depends on the frequency given at its own frame.
     #[inline]
     fn frame<S: Sample>(&mut self) -> S {
         let sample = S::from_binary64(Binary64::TAU * self.phase).sin().flush();

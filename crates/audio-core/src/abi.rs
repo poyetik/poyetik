@@ -121,7 +121,7 @@ pub enum VersionError {
         /// The module's version.
         version: ContractVersion,
     },
-    /// Before 1.0, the engine knows one minor version alone.
+    /// Before 1.0, the engine accepts one minor version alone.
     Unfrozen {
         /// The module's version.
         version: ContractVersion,
@@ -147,7 +147,7 @@ impl fmt::Display for VersionError {
             ),
             Self::Unfrozen { version, known } => write!(
                 f,
-                "contract version {version}: before 1.0 this engine knows 0.{known} alone"
+                "contract version {version}: before 1.0 this engine accepts 0.{known} alone"
             ),
             Self::LaterMinor { version, last } => write!(
                 f,
