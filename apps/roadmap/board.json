@@ -1079,7 +1079,7 @@
           "done": false
         },
         {
-          "title": "Bound the heavy laws' debug cost: render the 2^20-frame case of audio-host's conformance-at-every-engine-block test (73 to 85 s in a debug build) in a release-profile test, and run the random-patch law at 2^20, the plan laws at every rate, the limiter's engine-block law and audio-core's unit tests that take more than 5 CPU-s alone in a debug build (chosen by measuring them when the step is done, each listed with its time in crates/xtask/README.md's dated record) in a release-built target of audio-core's own tests, argued against MUTANT_BUILD_CONFIG (the counting allocator's caveat under higher optimization recorded in crates/xtask/README.md), each package's mutant test time read from cargo-mutants' outcomes.json, uploaded by every mutation shard, and recorded in crates/xtask/README.md",
+          "title": "Bound the heavy laws' debug cost, from measurements: first, every mutation shard uploads cargo-mutants' outcomes.json (each uploads only its list of unviable mutants today), and each package's mutant test time is read from it and recorded in crates/xtask/README.md; then render the 2^20-frame case of audio-host's conformance-at-every-engine-block test (73 to 85 s in a debug build) in a release-profile test, and run the random-patch law at 2^20, the plan laws at every rate, the limiter's engine-block law and audio-core's unit tests that take more than 5 CPU-s alone in a debug build (chosen by measuring them when the step is done, each listed with its time in crates/xtask/README.md's dated record) in a release-built target of audio-core's own tests, argued against MUTANT_BUILD_CONFIG (the counting allocator's caveat under higher optimization recorded in crates/xtask/README.md); a law that forces a host mode or counts the heap keeps a debug run whatever runs optimized, since an optimized build may answer otherwise under a host mode (#24 step 180)",
           "done": false
         },
         {
@@ -1265,6 +1265,10 @@
         {
           "title": "A setting of xtask for the number of mutation jobs (cargo-mutants' --jobs), for cargo xtask mutants, the default check and cargo xtask check --native: half the cores by default (mutation_jobs), a smaller number given on the command line so that a run on a machine in use stays light, refused below 1, and named in the run's output; xtask refuses CARGO_BUILD_JOBS and offers no other way",
           "done": false
+        },
+        {
+          "title": "Host-mode independence proven on optimized builds: at opt-level 2 and in release builds, the compiler turns the zero test of the range rule's reachable bound, a test of bits, into a float comparison with zero, which a host flushing subnormal numbers answers otherwise (measured 2026-11-27 on an Apple silicon Mac: object::tests::answers_alike_under_every_host_mode fails optimized, a range bounded by -2^-1074 accepted under flush-to-zero), and Setting::checked compares a limiter setting, unflushed, with ranges ending at zero in every build (a ceiling of 2^-1074 or an adaptivity of -2^-1074 accepted only under flush-to-zero): write zero tests the optimizer cannot rewrite, take a subnormal limiter setting as zero as a parameter is taken (spec/engine-design.md, decision 11), tested at ±2^-1074 under every host mode, check whether a phase sum of the true-peak filter can underflow to a subnormal, run every law that forces a host mode on an optimized build too, in CI and in cargo xtask check --native, and, if it stays simple, a gate over the optimized LLVM IR of the shipped crates refusing every float comparison with zero and every class test not in a reviewed list, each entry with its reason, proven to refuse a planted comparison; before #12 step 40, whose loaded box types run the range rule at run time",
+          "done": false
         }
       ]
     },
@@ -1370,7 +1374,7 @@
         },
         {
           "title": "Typed parameter access: a box type receives exactly its parameters, as an array of its own length, so that no box keeps a fallback default of its own (osc~'s 440 Hz); and a second body for driven parameters, held to the same bits as the steady one by a law over every registered box",
-          "done": false,
+          "done": true,
           "block": 3
         },
         {
