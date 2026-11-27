@@ -226,7 +226,7 @@ impl RangeRule {
 /// The one rule of a parameter's range, for every box type, built in ([`ParamSpec::new`])
 /// or described by a module (`spec/box-contract.md`): `minimum` and `maximum` finite, neither
 /// below 2^-126 in magnitude but zero (no value reaches such a bound once flushed), in
-/// order; the width, `maximum` less `minimum`, finite (a ramp across the range computes
+/// order as IEEE 754 compares numbers, a zero of either sign equal to the other; the width, `maximum` less `minimum`, finite (a ramp across the range computes
 /// it); `default_value`, flushed as a plan flushes it, within them. Decided by the faults in
 /// that order (the minimum's before the maximum's), so that a range refused for two reasons
 /// names the first.

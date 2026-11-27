@@ -897,6 +897,11 @@ fn reads_parameters_over_the_whole_of_binary64_bit_for_bit() {
     for values in [
         [1.0_f64, 0.0_f64, 1.0_f64],
         [0.0_f64, -0.0_f64, 0.0_f64],
+        // Zeros of two signs compare equal, as IEEE 754 compares them: a range from +0 to
+        // -0, and a default of -0 in one from +0 (finding D16-1 of the third deep review of
+        // #12 block 3), which a reader ordering zeros by their sign would refuse.
+        [0.0_f64, 0.0_f64, -0.0_f64],
+        [-0.0_f64, 0.0_f64, 1.0_f64],
         [0.1_f64, 0.1_f64, 0.1_f64],
         [1e300_f64, -1.0_f64, f64::MAX],
         [0.0_f64, -f64::MAX / 2.0_f64, f64::MAX / 2.0_f64],
