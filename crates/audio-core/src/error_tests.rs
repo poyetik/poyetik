@@ -156,7 +156,7 @@ fn describes_the_errors_of_hosts_and_modes() {
                 kind: String::from("osc~"),
                 frames: 128,
             },
-            "box 4: \"osc~\" is not built for engine blocks of 128 frames",
+            "box 4: \"osc~\" is not built for engine blocks of 128 frame(s)",
         ),
         (
             CoreError::StageChannels { plan: 2, stage: 3 },

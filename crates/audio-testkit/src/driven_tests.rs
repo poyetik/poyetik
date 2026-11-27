@@ -1189,7 +1189,7 @@ fn refuses_an_instance_that_is_not_created_or_takes_no_parameter() {
         ),
         (
             laws::<UNCREATED>(),
-            "the box type is not built for engine blocks of 1 frames",
+            "the box type is not built for engine blocks of 1 frame(s)",
         ),
     ] {
         assert_eq!(result, refused("parameter set 0 held", problem), "refused");
@@ -1203,7 +1203,7 @@ fn refuses_an_instance_that_is_not_created_or_takes_no_parameter() {
         )),
         refused(
             "parameter set 0 held",
-            "the box type is not built for engine blocks of 64 frames"
+            "the box type is not built for engine blocks of 64 frame(s)"
         ),
         "created for the reference only"
     );

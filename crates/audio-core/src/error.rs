@@ -171,7 +171,7 @@ impl fmt::Display for CoreError {
             ),
             Self::Unbuilt { node, kind, frames } => write!(
                 f,
-                "{node}: \"{kind}\" is not built for engine blocks of {frames} frames"
+                "{node}: \"{kind}\" is not built for engine blocks of {frames} frame(s)"
             ),
             Self::StageChannels { plan, stage } => write!(
                 f,

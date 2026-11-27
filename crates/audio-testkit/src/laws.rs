@@ -241,7 +241,7 @@ fn render<S: LawSample>(
 /// The refusal of a box type its instance type does not create in engine blocks of `frames`
 /// frames, worded as the plan's (`audio_core::CoreError::Unbuilt`).
 pub(crate) fn unbuilt(frames: usize) -> String {
-    format!("the box type is not built for engine blocks of {frames} frames")
+    format!("the box type is not built for engine blocks of {frames} frame(s)")
 }
 
 /// Bit patterns of rendered samples, so that `-0.0` and NaN payloads are compared exactly.
