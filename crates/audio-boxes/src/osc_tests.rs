@@ -32,15 +32,15 @@ use super::OSC;
 /// - binary64: the sine computed in binary64, half an ulp below 1, 2^-54 (the error of
 ///   `libm::sin` beyond its rounding counts in the evaluation term of [`bound`]);
 /// - binary64 given as binary32: the binary64 sine rounded to binary32, half an ulp below
-///   1, 2^-25 (a value rounding below 2^-126 is a binary32 subnormal, flushed to zero at
-///   delivery, an error below 2^-126);
+///   1, 2^-25 (a value rounding below 2^-126 in magnitude is a binary32 subnormal, flushed
+///   to zero at delivery, an error below 2^-126);
 /// - binary32: the angle `2π · phase`, below 2π < 8, rounded to binary32, by at most
 ///   half an ulp of [4, 8), 2^-22 (`computes_its_angle_below_eight`), which moves the
 ///   sine by at most as much; `libm::sinf` computes in binary64 within 2^-34.1 of the
 ///   sine of that angle (FreeBSD's kernels: 2^-34.1 for the cosine, 2^-37.5 relative for
 ///   the sine, after a reduction by multiples of π/2 in binary64), bounded by 2^-33, then
-///   rounds to binary32, half an ulp below 1, 2^-25; a value below 2^-126 is flushed to
-///   zero, an error below 2^-126. The shared formula of a binary32 sine
+///   rounds to binary32, half an ulp below 1, 2^-25; a value below 2^-126 in magnitude is
+///   flushed to zero, an error below 2^-126. The shared formula of a binary32 sine
 ///   (`sine_error_bounds`, `spec/measurements.md`) also counts the rounding of a gain
 ///   after the sine, half an ulp of the output, 2^-25 at full scale: `osc~` has no gain,
 ///   so it meets that bound with that much to spare.

@@ -121,7 +121,7 @@ group("judgeQuality", () => {
   group("a sine whose harmonic fit has no margin while its sine fit has", () => {
     /** The binary32 value of the bits `bits`. */
     const binary32 = (bits: number): number => new Float32Array(new Uint32Array([bits]).buffer)[0] ?? Number.NaN;
-    /** `value` rounded to binary32, then flushed to a zero of its sign below 2^-126, as the engine gives a binary32 sample. */
+    /** `value` rounded to binary32, then flushed to a zero of its sign below 2^-126 in magnitude, as the engine gives a binary32 sample. */
     const sample = (value: number): number => {
       const rounded = Math.fround(value);
       return Math.abs(rounded) < 2 ** -126 ? rounded * 0 : rounded;

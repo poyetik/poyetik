@@ -59,21 +59,20 @@ export function sineError(samples: readonly number[], rate: number, sine: Sine):
  *
  * - computing and giving the sine, by format:
  *   - binary64: the sine computed in binary64, half an ulp below |a|'s power of two,
- *     2^(e − 54); values below 2^-1022 are flushed to zero, an error up to 2^-1022, which
- *     the exponent's floor of −968 keeps;
+ *     2^(e − 54); values below 2^-1022 in magnitude are flushed to zero, an error up to
+ *     2^-1022, which the exponent's floor of −968 keeps;
  *   - binary64 given as binary32: the binary64 sine rounded to binary32, half an ulp,
- *     2^(e − 25); a value that rounds below 2^-126 is a binary32 subnormal, which delivery
- *     flushes to zero (`spec/engine-design.md`, decision 11), an error below 2^-126, which
- *     the exponent's floor of −101 keeps;
+ *     2^(e − 25); a value that rounds below 2^-126 in magnitude is a binary32 subnormal,
+ *     which delivery flushes to zero (`spec/engine-design.md`, decision 11), an error below
+ *     2^-126, which the exponent's floor of −101 keeps;
  *   - binary32: the angle 2π · phase, below 8, rounded to binary32 within 2^-22, which moves
  *     the sine by as much; `sinf` within 2^-33 of the sine of that angle before its result
  *     is rounded to binary32, half an ulp of the sine, 2^-25; these scale with |a|; then a
  *     gain of |a| rounds the product to binary32 again, half an ulp, 2^(e − 25), a gain
  *     exact in binary32 (`parseExpectations` refuses any other amplitude: a gain that itself
  *     rounds to binary32 adds 2^(e − 25) more, for the first box with such a gain to derive
- *     and add); values
- *     below 2^-126 are flushed to zero, an error up to 2^-126, which the exponent's floor of
- *     −101 keeps;
+ *     and add); values below 2^-126 in magnitude are flushed to zero, an error up to
+ *     2^-126, which the exponent's floor of −101 keeps;
  * - phase accumulation in binary64, in every format, at c = frequency / rate cycles per
  *   sample: the increment is c rounded, less its whole cycles (an exact subtraction), and
  *   the phase below one cycle adds it once per sample. By regime of c:

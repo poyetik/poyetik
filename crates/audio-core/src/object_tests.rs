@@ -133,7 +133,7 @@ fn gives_parameters_in_order_none_below_the_smallest_normal_binary32() {
             0x8000_0000_0000_0000,
             440.0_f64.to_bits(),
         ],
-        "in order, every value kept but those below 2^-126, zeros of their sign"
+        "in order, every value kept but those below 2^-126 in magnitude, zeros of their sign"
     );
     assert!(
         ParamValues::of(&NONE, &[])
@@ -224,10 +224,11 @@ mute!(Silent, 0, &[]);
 /// (default 440).
 static TWO: ObjectSpec = mute::<Two, 2>("two~");
 
-/// A box type of one parameter whose default is below 2^-126.
+/// A box type of one parameter whose default is below 2^-126 in magnitude.
 static TINY: ObjectSpec = mute::<Tiny, 1>("tiny~");
 
-/// A box type of one parameter from 1 to 1e300, whose range holds no value below 2^-126.
+/// A box type of one parameter from 1 to 1e300, whose range holds no value below 2^-126 in
+/// magnitude.
 static FAR: ObjectSpec = mute::<Far, 1>("far~");
 
 /// A box type of five parameters, each accepting -1,000 to 1,000.
@@ -312,7 +313,7 @@ fn takes_values_within_their_range_only_flushed_first() {
     assert_eq!(
         ParamValues::of(&TWO, &wide([-subnormal, -1e-300_f64])).map(|values| bits(&values)),
         Ok(vec![0x8000_0000_0000_0000, 0x8000_0000_0000_0000]),
-        "below 2^-126, zeros of their sign"
+        "below 2^-126 in magnitude, zeros of their sign"
     );
     // A binary64 value no binary32 parameter holds, 1 + 2^-40, keeps its bits.
     let between = f64::from_bits(0x3ff0_0000_0000_1000);
@@ -414,8 +415,8 @@ fn holds_and_says_its_numbers_by_their_bits() {
     );
 }
 
-/// The refusals as a user reads them: the value as it was given (below 2^-126, what it is
-/// flushed to would be another), a NaN, which is outside nothing, a wide range in its
+/// The refusals as a user reads them: the value as it was given (below 2^-126 in magnitude,
+/// what it is flushed to would be another), a NaN, which is outside nothing, a wide range in its
 /// shortest form, and, for driven values, blocks counted as blocks and the frame named.
 #[test]
 fn says_each_refusal_as_it_was_given() {
@@ -501,13 +502,13 @@ fn takes_a_default_within_its_finite_range_only() {
             "{default_value} in [{minimum}, {maximum}], kept as written"
         );
     }
-    // Flushed, as a plan flushes it: a default below 2^-126 is a zero of its sign, kept as
-    // written for hosts.
+    // Flushed, as a plan flushes it: a default below 2^-126 in magnitude is a zero of its
+    // sign, kept as written for hosts.
     let below = SMALLEST.next_down();
     assert_eq!(
         checked(below, 0.0_f64, 1.0_f64),
         Ok([below.to_bits(), 0, 1.0_f64.to_bits()]),
-        "a default below 2^-126, zero once flushed, in a range from 0"
+        "a default below 2^-126 in magnitude, zero once flushed, in a range from 0"
     );
     assert_eq!(
         checked(-1e-300, -1.0_f64, 0.0_f64),
@@ -533,7 +534,8 @@ fn takes_a_default_within_its_finite_range_only() {
 #[test]
 fn takes_a_finite_range_in_order_of_reachable_bounds_only() {
     let below = SMALLEST.next_down();
-    // A nonzero bound below 2^-126, which a plan would flush to zero: no value can reach it.
+    // A nonzero bound below 2^-126 in magnitude, which a plan would flush to zero: no value
+    // can reach it.
     for positive in [
         f64::from_bits(1),
         1e-300_f64,
@@ -959,7 +961,7 @@ fn takes_each_value_picked_its_range_accepts_else_the_default() {
     assert_eq!(
         picked(&|_| -1e-300_f64),
         [0x8000_0000_0000_0000; 2],
-        "below 2^-126 a zero of its sign, which both accept"
+        "below 2^-126 in magnitude a zero of its sign, which both accept"
     );
     assert_eq!(
         picked(&|_| f64::NAN),
@@ -969,7 +971,7 @@ fn takes_each_value_picked_its_range_accepts_else_the_default() {
     assert_eq!(
         bits(&ParamValues::within(&TINY, |_| 2.0_f64)),
         [0x8000_0000_0000_0000],
-        "a default below 2^-126, flushed"
+        "a default below 2^-126 in magnitude, flushed"
     );
     let mut names = Vec::new();
     let mut count = 0.0_f64;
@@ -1026,7 +1028,7 @@ fn drives_with_values_within_their_range_only_flushed_first() {
     assert_eq!(
         given,
         vec![expected_a, expected_b],
-        "below 2^-126 a zero of its sign, every other value kept bit for bit"
+        "below 2^-126 in magnitude a zero of its sign, every other value kept bit for bit"
     );
     for (count, blocks) in [
         (0, vec![]),
@@ -1210,7 +1212,7 @@ fn drives_with_each_value_picked_its_range_accepts_else_the_default() {
     assert_eq!(
         flushed,
         [[0x8000_0000_0000_0000; 2]],
-        "a default below 2^-126, flushed to a zero of its sign"
+        "a default below 2^-126 in magnitude, flushed to a zero of its sign"
     );
 }
 

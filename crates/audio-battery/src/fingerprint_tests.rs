@@ -55,7 +55,8 @@ enum Quirk {
     /// On a special input of the matrix only: the smallest normal of either precision,
     /// which the seeded random signal never is.
     Special,
-    /// With its gain nonzero and below 2^-126, which no parameter given as `Params` is.
+    /// With its gain nonzero and below 2^-126 in magnitude, which no parameter given as
+    /// `Params` is.
     SubnormalGain,
 }
 
@@ -390,7 +391,7 @@ fn tries_a_value_away_from_the_default() {
     assert_eq!(
         given_sets::<Below>()[2],
         wide(0.5_f64),
-        "halfway from a default below 2^-126, given as 0, to the maximum"
+        "halfway from a default below 2^-126 in magnitude, given as 0, to the maximum"
     );
     assert_eq!(
         given_sets::<Above>()[2],
@@ -452,8 +453,9 @@ fn given_sets<T: Create<1>>() -> Vec<Vec<u64>> {
 
 #[test]
 fn gives_the_parameters_as_a_plan_does() {
-    // A box that changes only for a nonzero gain below 2^-126, which no parameter given as
-    // `Params` is: no plan can reach that change, so its fingerprint is the plain one.
+    // A box that changes only for a nonzero gain below 2^-126 in magnitude, which no
+    // parameter given as `Params` is: no plan can reach that change, so its fingerprint is
+    // the plain one.
     assert_eq!(
         print(echo(Quirk::SubnormalGain)),
         print(echo(Quirk::None)),

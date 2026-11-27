@@ -17,8 +17,8 @@ use audio_core::{
 /// (the policy there is decided with #12 step 41).
 ///
 /// Subnormal outputs are flushed to zero (`spec/engine-design.md`, decision 11): at the
-/// smallest frequencies, the first frames of a binary32 sine are below 2^-126 and come out
-/// as +0. The phase, its only recursive state, is never subnormal
+/// smallest frequencies, the first frames of a binary32 sine are below 2^-126 in magnitude
+/// and come out as +0. The phase, its only recursive state, is never subnormal
 /// (`keeps_its_phase_zero_or_normal`).
 #[derive(Debug)]
 pub(crate) struct Osc {

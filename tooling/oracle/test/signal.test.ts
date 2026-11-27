@@ -32,7 +32,7 @@ test("derives the error bound of each render format term by term", () => {
   expect(sineErrorBound(2 ** -967, 0, "binary64")).toBe(2 ** -1021 + 2 ** -967 * 2 ** -48);
   expect(sineErrorBound(1, 0, "binary32")).toBe(2 ** -25 + (2 ** -22 + 2 ** -25 + 2 ** -33 + 2 ** -48));
   expect(sineErrorBound(-0.5, 8192, "binary32")).toBe(2 ** -26 + 0.5 * (2 ** -22 + 2 ** -25 + 2 ** -33 + accumulated(8192)));
-  // Below 2^-101, the flush of values below 2^-126 dominates the rounding.
+  // Below 2^-101, the flush of values below 2^-126 in magnitude dominates the rounding.
   expect(sineErrorBound(2 ** -116, 0, "binary32")).toBe(2 ** -126 + 2 ** -116 * (2 ** -22 + 2 ** -25 + 2 ** -33 + 2 ** -48));
   expect(sineErrorBound(2 ** -100, 0, "binary32")).toBe(2 ** -125 + 2 ** -100 * (2 ** -22 + 2 ** -25 + 2 ** -33 + 2 ** -48));
   // A gain that is not a power of two: the sine rounded, then the product rounded again.

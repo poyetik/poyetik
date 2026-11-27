@@ -547,7 +547,8 @@ fn catches_a_release_while_processing() {
 fn checks_parameters_at_negative_zero_and_the_smallest_normal_and_never_below() {
     // NaN only for a parameter of -0.0, then only for the smallest normal binary32: none is
     // a minimum, default, midpoint or maximum. Parameters reach a box as `Params`, so a
-    // box breaking on a nonzero parameter below 2^-126 passes: no plan can give it one.
+    // box breaking on a nonzero parameter below 2^-126 in magnitude passes: no plan can give
+    // it one.
     let negative_zero = gain!(|_, params| {
         if params.first().map(|value| value.to_bits()) == Some((-0.0_f64).to_bits()) {
             Fixture::Nan
