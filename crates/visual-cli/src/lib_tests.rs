@@ -394,11 +394,20 @@ fn reports_every_case_that_differs_from_its_reference() {
         hash(OTHER),
         hash(SMALL)
     );
+    // Its third line the stale one, refused after the two cases' lines are taken.
+    assert_eq!(
+        run_words(&mut corpus(&stale_only), &["check", "d"])
+            .1
+            .lines()
+            .nth(2),
+        Some("STALE    gone: reference without a case"),
+        "the stale line, third"
+    );
     assert_eq!(
         run(
             &args(&["check", "d"]),
             &mut corpus(&stale_only),
-            &mut Pipe(io::ErrorKind::StorageFull)
+            &mut Lines(2)
         ),
         Err(CliError::Failed(
             "cannot write to stdout: no storage space".to_owned()
