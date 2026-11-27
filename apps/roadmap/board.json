@@ -2098,7 +2098,7 @@
           "done": false
         },
         {
-          "title": "Bring the two harnesses of xtask's tests that break each call in turn, one over the checks and one over the gates, under one, if it can hold the rules of both without weakening either",
+          "title": "Bring the two harnesses of xtask's tests that break each call in turn, one over the checks and one over the gates, under one, if it can hold the rules of both without weakening either; a command's output answered per occurrence, so that a call failed silently at a later occurrence leaves the earlier ones their output and is reached",
           "done": false
         }
       ]
