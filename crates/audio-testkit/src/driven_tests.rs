@@ -13,15 +13,7 @@ use audio_core::{
 };
 
 use super::{check_driven_laws, drawn};
-
-const IN: PortSpec = PortSpec {
-    name: "in",
-    description: "a signal",
-};
-const OUT: PortSpec = PortSpec {
-    name: "out",
-    description: "a signal",
-};
+use crate::tests::{IN, OUT};
 
 /// Both bodies agree.
 const RIGHT: u8 = 0;

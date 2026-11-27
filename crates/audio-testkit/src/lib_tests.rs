@@ -1,7 +1,21 @@
 //! The global allocator of this crate's test binary, and the tests of its library's own
 //! functions.
 
+use audio_core::PortSpec;
+
 use super::CountingAllocator;
+
+/// The inlet of the boxes of the laws' tests, the box laws' and the driven laws'.
+pub(crate) const IN: PortSpec = PortSpec {
+    name: "in",
+    description: "a signal",
+};
+
+/// The outlet of the boxes of the laws' tests.
+pub(crate) const OUT: PortSpec = PortSpec {
+    name: "out",
+    description: "a signal",
+};
 
 /// The test binary of this crate counts heap operations, like every box test binary must.
 #[global_allocator]

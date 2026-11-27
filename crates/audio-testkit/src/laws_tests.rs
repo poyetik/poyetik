@@ -11,15 +11,8 @@ use audio_core::{
 
 use super::{check_description, check_laws, check_registry};
 use crate::sample_of as of;
+use crate::tests::{IN, OUT};
 
-const PORT: PortSpec = PortSpec {
-    name: "in",
-    description: "a signal",
-};
-const OUT: PortSpec = PortSpec {
-    name: "out",
-    description: "a signal",
-};
 const GAIN: ParamSpec = audio_core::param!("gain", "gain", 0.5, 0.0, 1.0);
 
 /// The boxes of these tests, each written once for both precisions.
@@ -243,7 +236,7 @@ macro_rules! box_type {
 }
 
 /// A `gain~` spec, as [`GOOD`]'s description but for the parameters and ports given (by
-/// default [`GAIN`], [`PORT`] and [`OUT`]), whose instance is the [`Fixture`] a function of
+/// default [`GAIN`], [`IN`] and [`OUT`]), whose instance is the [`Fixture`] a function of
 /// the sample rate and the parameters chooses: a static of its own box type.
 macro_rules! gain {
     ($(params: $params:expr,)? $(inlets: $inlets:expr,)? $(outlets: $outlets:expr,)?
@@ -252,7 +245,7 @@ macro_rules! gain {
         leaked(good::<Chosen, _>(
             "gain~",
             GAIN_DESCRIPTION,
-            gain!(@or $($inlets)? ; &[PORT]),
+            gain!(@or $($inlets)? ; &[IN]),
             gain!(@or $($outlets)? ; &[OUT]),
         ))
     }};
@@ -283,7 +276,7 @@ box_type!(Good, &[GAIN], |_, params| Fixture::Gain(
 ));
 
 /// A correct box: multiplies its input by its gain.
-static GOOD: ObjectSpec = good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
+static GOOD: ObjectSpec = good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[IN], &[OUT]);
 
 static INSTANCES: AtomicU16 = AtomicU16::new(0);
 
@@ -507,14 +500,14 @@ fn holds_an_offline_only_box_to_every_law_but_the_heap() {
     let allocating = leaked(good::<OfflineAllocating, 1>(
         "gain~",
         GAIN_DESCRIPTION,
-        &[PORT],
+        &[IN],
         &[OUT],
     ));
     assert_eq!(check_laws(allocating), Ok(()), "offline-only, allocating");
     let nan = leaked(good::<OfflineNan, 1>(
         "gain~",
         GAIN_DESCRIPTION,
-        &[PORT],
+        &[IN],
         &[OUT],
     ));
     assert_eq!(
@@ -783,10 +776,10 @@ fn names_parameters_in_binary64() {
 }
 
 /// Fixtures for the description cases.
-static DUP_PORTS: [PortSpec; 2] = [PORT, PORT];
+static DUP_PORTS: [PortSpec; 2] = [IN, IN];
 static DUP_PARAMS: [ParamSpec; 2] = [GAIN, GAIN];
 static UNDOCUMENTED_PORT: [PortSpec; 2] = [
-    PORT,
+    IN,
     PortSpec {
         name: "x",
         description: " ",
@@ -798,7 +791,7 @@ static EMPTY_PORT: [PortSpec; 1] = [PortSpec {
 }];
 
 static SPACED_PORT: [PortSpec; 2] = [
-    PORT,
+    IN,
     PortSpec {
         name: "in ",
         description: "x",
@@ -874,15 +867,15 @@ const GAIN_DESCRIPTION: &str = "multiplies by a gain";
 /// Specs with one description problem each, and the expected message.
 static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
     (
-        good::<Good, 1>("osc\u{200b}~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<Good, 1>("osc\u{200b}~", GAIN_DESCRIPTION, &[IN], &[OUT]),
         "box type name \"osc\\u{200b}~\" holds U+200B",
     ),
     (
-        good::<Good, 1>("gain~", "erase\u{1b}[2J", &[PORT], &[OUT]),
+        good::<Good, 1>("gain~", "erase\u{1b}[2J", &[IN], &[OUT]),
         "description text \"erase\\u{1b}[2J\" holds U+001B",
     ),
     (
-        good::<Good, 1>("gain~", "\u{200b} ", &[PORT], &[OUT]),
+        good::<Good, 1>("gain~", "\u{200b} ", &[IN], &[OUT]),
         "description text is blank",
     ),
     (
@@ -890,27 +883,27 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
         "inlet 0, its name \"in\\u{202e}\" holds U+202E",
     ),
     (
-        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &LINES_PORT),
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[IN], &LINES_PORT),
         "outlet 0, its description text \"a\\nb\" holds U+000A",
     ),
     (
-        good::<HiddenParam, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<HiddenParam, 1>("gain~", GAIN_DESCRIPTION, &[IN], &[OUT]),
         "parameter 0, its name \"g\\u{feff}ain\" holds U+FEFF",
     ),
     (
-        good::<SeparatedParam, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<SeparatedParam, 1>("gain~", GAIN_DESCRIPTION, &[IN], &[OUT]),
         "parameter 0, its description text \"\\u{2028}\" holds U+2028",
     ),
     (
-        good::<Good, 1>("", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<Good, 1>("", GAIN_DESCRIPTION, &[IN], &[OUT]),
         "box type name is blank",
     ),
     (
-        good::<Good, 1>("two words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<Good, 1>("two words", GAIN_DESCRIPTION, &[IN], &[OUT]),
         "box type name \"two words\" holds a space",
     ),
     (
-        good::<Good, 1>("two\u{a0}words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<Good, 1>("two\u{a0}words", GAIN_DESCRIPTION, &[IN], &[OUT]),
         "box type name \"two\\u{a0}words\" holds U+00A0",
     ),
     (
@@ -918,14 +911,14 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
         "inlet 1, its name \"in \" starts or ends with a space, or holds two in a row",
     ),
     (
-        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &BLANK_PORT),
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[IN], &BLANK_PORT),
         "outlet 0, its name is blank",
     ),
     (
         ObjectSpec::new::<Good, 1>(
             "gain~",
             GAIN_DESCRIPTION,
-            &[PORT],
+            &[IN],
             &[OUT],
             &[Capability::AudioOutput, Capability::AudioOutput],
             AlgorithmVersion::FIRST,
@@ -933,7 +926,7 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
         "capability 1 AudioOutput repeats item 0 of its list",
     ),
     (
-        good::<Good, 1>("gain~", "  ", &[PORT], &[OUT]),
+        good::<Good, 1>("gain~", "  ", &[IN], &[OUT]),
         "description text is blank",
     ),
     (
@@ -941,7 +934,7 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
         "inlet 1, its name \"in\" repeats item 0 of its list",
     ),
     (
-        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &DUP_PORTS),
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[IN], &DUP_PORTS),
         "outlet 1, its name \"in\" repeats item 0 of its list",
     ),
     (
@@ -949,7 +942,7 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
         "inlet 0, its name is blank",
     ),
     (
-        good::<DupParams, 2>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<DupParams, 2>("gain~", GAIN_DESCRIPTION, &[IN], &[OUT]),
         "parameter 1, its name \"gain\" repeats item 0 of its list",
     ),
     (
@@ -957,11 +950,11 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
         "inlet 1, its description text is blank",
     ),
     (
-        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &UNDOCUMENTED_PORT),
+        good::<Good, 1>("gain~", GAIN_DESCRIPTION, &[IN], &UNDOCUMENTED_PORT),
         "outlet 1, its description text is blank",
     ),
     (
-        good::<Undescribed, 1>("gain~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+        good::<Undescribed, 1>("gain~", GAIN_DESCRIPTION, &[IN], &[OUT]),
         "parameter 0, its description text is blank",
     ),
 ];
@@ -985,7 +978,7 @@ fn rejects_invalid_descriptions() {
     let output = ObjectSpec::new::<Good, 1>(
         "gain~",
         GAIN_DESCRIPTION,
-        &[PORT],
+        &[IN],
         &[OUT],
         &[Capability::AudioOutput],
         AlgorithmVersion::FIRST,
@@ -995,7 +988,7 @@ fn rejects_invalid_descriptions() {
 
 #[test]
 fn checks_a_registry() {
-    let other = good::<Good, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
+    let other = good::<Good, 1>("other~", GAIN_DESCRIPTION, &[IN], &[OUT]);
     assert_eq!(check_registry(&[&GOOD, &other]), Ok(()), "valid registry");
     assert_eq!(check_registry(&[]), Ok(()), "empty registry");
     assert_eq!(
@@ -1004,13 +997,13 @@ fn checks_a_registry() {
         "unique names"
     );
     // A name a port could have, but not a box type.
-    let spaced = good::<Good, 1>("a b", GAIN_DESCRIPTION, &[PORT], &[OUT]);
+    let spaced = good::<Good, 1>("a b", GAIN_DESCRIPTION, &[IN], &[OUT]);
     assert_eq!(
         check_registry(&[&GOOD, &spaced]),
         Err("box type 1, its name \"a b\" holds a space".to_owned()),
         "each name checked as a box type's, before every box"
     );
-    let bad = good::<Good, 1>("other~", "", &[PORT], &[OUT]);
+    let bad = good::<Good, 1>("other~", "", &[IN], &[OUT]);
     assert_eq!(
         check_registry(&[&GOOD, &bad]),
         Err("other~: description text is blank".to_owned()),
@@ -1019,19 +1012,19 @@ fn checks_a_registry() {
     // A patch writes binary32 values until its format holds binary64 ones.
     for (spec, problem) in [
         (
-            good::<FineDefault, 2>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+            good::<FineDefault, 2>("other~", GAIN_DESCRIPTION, &[IN], &[OUT]),
             "parameter \"tone\": its default 0.1",
         ),
         (
-            good::<NormalDefault, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+            good::<NormalDefault, 1>("other~", GAIN_DESCRIPTION, &[IN], &[OUT]),
             "parameter \"gain\": its default 1.1754943508233566e-38",
         ),
         (
-            good::<FineMinimum, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+            good::<FineMinimum, 1>("other~", GAIN_DESCRIPTION, &[IN], &[OUT]),
             "parameter \"gain\": its minimum -0.1",
         ),
         (
-            good::<FineMaximum, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
+            good::<FineMaximum, 1>("other~", GAIN_DESCRIPTION, &[IN], &[OUT]),
             "parameter \"gain\": its maximum 1e300",
         ),
     ] {
@@ -1052,7 +1045,7 @@ fn checks_a_registry() {
     // A default below 2^-126 in magnitude is held as a zero, which a patch writes exactly
     // (finding D2-n3 of the third deep review of #12 block 3): 2^-126 (1 + 2^-40) above is
     // not a binary32 and stays refused, being of the binade at 2^-126.
-    let tiny = good::<TinyDefault, 1>("other~", GAIN_DESCRIPTION, &[PORT], &[OUT]);
+    let tiny = good::<TinyDefault, 1>("other~", GAIN_DESCRIPTION, &[IN], &[OUT]);
     assert_eq!(check_registry(&[&GOOD, &tiny]), Ok(()), "a flushed default");
 }
 
