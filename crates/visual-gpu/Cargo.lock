@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "alloc-counter"
-version = "0.11.1"
+version = "0.12.0"
 
 [[package]]
 name = "allocator-api2"
@@ -759,18 +759,18 @@ checksum = "ca718471876992059f251e33aafc334346ada08042b7661dd1fe313a9bced557"
 
 [[package]]
 name = "visual-boxes"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "visual-core",
 ]
 
 [[package]]
 name = "visual-core"
-version = "0.11.1"
+version = "0.12.0"
 
 [[package]]
 name = "visual-gpu"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "visual-boxes",
  "visual-core",
@@ -780,7 +780,7 @@ dependencies = [
 
 [[package]]
 name = "visual-testkit"
-version = "0.11.1"
+version = "0.12.0"
 dependencies = [
  "alloc-counter",
  "proptest",

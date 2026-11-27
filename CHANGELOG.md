@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-27
+
 ### Added
 
 - `visual_gpu::bench::TimedGpu`, what `visual_gpu::bench::measure` asks of the GPU it measures: whether it has a clock, its name, its timed renders and encodings, and the images it measures them into. `GpuSquare` implements it; it is sealed, so that only this crate does.
