@@ -869,7 +869,7 @@ const GAIN_DESCRIPTION: &str = "multiplies by a gain";
 static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
     (
         good::<Good, 1>("osc\u{200b}~", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "box name \"osc\\u{200b}~\" holds U+200B",
+        "box type name \"osc\\u{200b}~\" holds U+200B",
     ),
     (
         good::<Good, 1>("gain~", "erase\u{1b}[2J", &[PORT], &[OUT]),
@@ -897,15 +897,15 @@ static INVALID_DESCRIPTIONS: [(ObjectSpec, &str); 21] = [
     ),
     (
         good::<Good, 1>("", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "box name is blank",
+        "box type name is blank",
     ),
     (
         good::<Good, 1>("two words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "box name \"two words\" holds whitespace",
+        "box type name \"two words\" holds whitespace",
     ),
     (
         good::<Good, 1>("two\u{a0}words", GAIN_DESCRIPTION, &[PORT], &[OUT]),
-        "box name \"two\\u{a0}words\" holds U+00A0",
+        "box type name \"two\\u{a0}words\" holds U+00A0",
     ),
     (
         good::<Good, 1>("gain~", GAIN_DESCRIPTION, &SPACED_PORT, &[OUT]),
@@ -994,14 +994,14 @@ fn checks_a_registry() {
     assert_eq!(check_registry(&[]), Ok(()), "empty registry");
     assert_eq!(
         check_registry(&[&GOOD, &GOOD]),
-        Err("duplicate box \"gain~\"".to_owned()),
+        Err("duplicate box type \"gain~\"".to_owned()),
         "unique names"
     );
     // A name a port could have, but not a box type.
     let spaced = good::<Good, 1>("a b", GAIN_DESCRIPTION, &[PORT], &[OUT]);
     assert_eq!(
         check_registry(&[&GOOD, &spaced]),
-        Err("box name \"a b\" holds whitespace".to_owned()),
+        Err("box type name \"a b\" holds whitespace".to_owned()),
         "each name checked as a box type's, before every box"
     );
     let bad = good::<Good, 1>("other~", "", &[PORT], &[OUT]);

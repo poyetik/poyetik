@@ -70,7 +70,7 @@ mod tests {
         ]
     }
 
-    /// A string as JSON text: a box name, an escape, a control character, or anything.
+    /// A string as JSON text: a box type name, an escape, a control character, or anything.
     fn text() -> impl Strategy<Value = String> {
         prop_oneof![
             prop_oneof![

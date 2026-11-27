@@ -99,7 +99,7 @@ fn check_text(text: &str, kind: TextKind, what: &str) -> Result<(), String> {
 /// range and default need no law: a `audio_core::ParamSpec` is built only with a finite range
 /// holding its default.
 pub fn check_description(spec: &ObjectSpec) -> Result<(), String> {
-    check_text(spec.name(), TextKind::BoxName, "box name")?;
+    check_text(spec.name(), TextKind::BoxTypeName, "box type name")?;
     check_text(
         spec.description(),
         TextKind::DescriptionText,
@@ -192,12 +192,12 @@ fn check_written(spec: &ObjectSpec) -> Result<(), String> {
 ///
 /// # Errors
 ///
-/// Returns the first problem found: a box name the box contract refuses
+/// Returns the first problem found: a box type name the box contract refuses
 /// (`audio_core::host::text_fault`) or one given twice, unprefixed, since the names are
 /// checked before any box; then the first problem of a box, prefixed by its name.
 pub fn check_registry(registry: &[&ObjectSpec]) -> Result<(), String> {
     let mut names = registry.iter().map(|spec| spec.name());
-    unique_names("box", TextKind::BoxName, &mut names)?;
+    unique_names("box type", TextKind::BoxTypeName, &mut names)?;
     for spec in registry {
         check_description(spec)
             .and_then(|()| check_written(spec))

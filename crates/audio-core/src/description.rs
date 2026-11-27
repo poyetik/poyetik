@@ -31,7 +31,7 @@ pub const PORTS_MAX: u32 = 65_536;
 #[non_exhaustive]
 pub enum TextKind {
     /// The name of a box type, which a patch writes as one word.
-    BoxName,
+    BoxTypeName,
     /// The name of a port or a parameter: one a patch or a cable names it by.
     Name,
     /// What a box type, a port or a parameter does, in a sentence.
@@ -67,7 +67,7 @@ pub fn text_fault(text: &str, kind: TextKind) -> Option<Fault> {
         .map(Fault::Character)
         .or_else(|| text.chars().all(shows_nothing).then_some(Fault::Blank))
         .or_else(|| match kind {
-            TextKind::BoxName => text.contains(' ').then_some(Fault::Whitespace),
+            TextKind::BoxTypeName => text.contains(' ').then_some(Fault::Whitespace),
             TextKind::Name => (text.starts_with(' ') || text.ends_with(' ') || text.contains("  "))
                 .then_some(Fault::Spaces),
             TextKind::DescriptionText => None,
@@ -323,7 +323,7 @@ impl<'bytes> Description<'bytes> {
             _ => None,
         })?;
         reader.field = Field::Name;
-        let name = reader.text(TextKind::BoxName)?;
+        let name = reader.text(TextKind::BoxTypeName)?;
         reader.field = Field::DescriptionText;
         let text = reader.text(TextKind::DescriptionText)?;
         reader.field = Field::Inlets;
