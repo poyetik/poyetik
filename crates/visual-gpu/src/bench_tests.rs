@@ -1992,6 +1992,24 @@ fn compares_exactly_at_any_baseline() {
 }
 
 #[test]
+fn allocates_the_images_it_measures_at_the_size_asked() {
+    let gpu = GpuSquare::new(wgpu::Backends::all()).expect("a GPU (a software one in CI)");
+    let other = visual_core::ImageSize::new(3, 5).expect("a size");
+    for size in SHOWN.into_iter().chain([CHECKED, other]) {
+        assert_eq!(
+            super::TimedGpu::image(&gpu, size).map(|image| image.size()),
+            Ok(size),
+            "an image of {size:?}"
+        );
+        assert_eq!(
+            super::TimedGpu::display(&gpu, size).map(|display| display.size()),
+            Ok(size),
+            "a display image of {size:?}"
+        );
+    }
+}
+
+#[test]
 fn measures_this_gpu_by_its_clock() {
     let gpu = GpuSquare::new(wgpu::Backends::all()).expect("a GPU (a software one in CI)");
     // The checks run on a GPU with a clock (`runs_the_checks_on_a_gpu_with_a_clock`): a time.
@@ -2512,7 +2530,9 @@ impl Refusing {
     }
 }
 
-impl super::Measured for Refusing {
+impl super::sealed::Sealed for Refusing {}
+
+impl super::TimedGpu for Refusing {
     fn has_clock(&self) -> bool {
         self.clock
     }

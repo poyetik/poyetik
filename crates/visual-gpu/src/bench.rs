@@ -318,14 +318,19 @@ const MEASURED_SQUARE: Square = {
 /// render, an encoding or an allocation at any call. Every function measuring takes it as a
 /// generic, never a trait object: dispatched statically, the measured GPU's path compiles to
 /// the same calls as `GpuSquare`'s own methods, no indirection added to what is timed.
-pub trait Measured {
+///
+/// Sealed: only this crate implements it (`GpuSquare`, and its tests' GPU), so that a
+/// [`Times`], built only here, holds a real GPU's times and nothing another crate made up.
+pub trait TimedGpu: sealed::Sealed {
     /// Whether its programs can read a clock: [`measure`] refuses a GPU without one.
     fn has_clock(&self) -> bool;
 
     /// Its name and API, the baseline's key.
     fn adapter(&self) -> &str;
 
-    /// Renders `index` of `square` into `output`, with the time the GPU measured.
+    /// Renders `index` of `square` into `output`, with the time the GPU measured, in
+    /// nanoseconds, as [`GpuSquare::timed_render`]: `None` when the GPU wrote no timestamp of
+    /// a pass, a run [`measure`] leaves out of its median, never a time of 0.
     ///
     /// # Errors
     ///
@@ -337,7 +342,9 @@ pub trait Measured {
         output: &mut Image,
     ) -> Result<Option<f64>, GpuError>;
 
-    /// Encodes `image` into `display`, with the time the GPU measured.
+    /// Encodes `image` into `display`, with the time the GPU measured, in nanoseconds, as
+    /// [`GpuSquare::timed_encode`]: `None` when the GPU wrote no timestamp of a pass, a run
+    /// [`measure`] leaves out of its median, never a time of 0.
     ///
     /// # Errors
     ///
@@ -348,7 +355,8 @@ pub trait Measured {
         display: &mut DisplayImage,
     ) -> Result<Option<f64>, GpuError>;
 
-    /// An image of `size`, allocated by the machine ([`Image::try_new`]).
+    /// An image of exactly `size`, allocated by the machine ([`Image::try_new`]): the size
+    /// [`measure`] reports its time at.
     ///
     /// # Errors
     ///
@@ -357,7 +365,8 @@ pub trait Measured {
         Image::try_new(size)
     }
 
-    /// A display image of `size`, allocated by the machine ([`DisplayImage::try_new`]).
+    /// A display image of exactly `size`, allocated by the machine
+    /// ([`DisplayImage::try_new`]).
     ///
     /// # Errors
     ///
@@ -367,7 +376,9 @@ pub trait Measured {
     }
 }
 
-impl Measured for GpuSquare {
+impl sealed::Sealed for GpuSquare {}
+
+impl TimedGpu for GpuSquare {
     fn has_clock(&self) -> bool {
         self.period.is_some()
     }
@@ -395,7 +406,7 @@ impl Measured for GpuSquare {
 }
 
 /// What the GPU's clock measures of rendering [`IMAGE`] at `size` ([`median_of`]).
-fn median<G: Measured>(gpu: &G, square: &Square, size: ImageSize) -> Result<Timing, Failure> {
+fn median<G: TimedGpu>(gpu: &G, square: &Square, size: ImageSize) -> Result<Timing, Failure> {
     let mut image = gpu.image(size)?;
     median_of(&mut || Ok(gpu.timed_render(square, IMAGE, &mut image)?))
 }
@@ -447,7 +458,7 @@ const NO_CLOCK: &str = "this GPU has no clock its programs can read";
 /// Returns, at once and with nothing rendered, that a GPU has no clock its programs can
 /// read; then why the GPU could not render, or an image or a display image the
 /// machine cannot hold (the library's error, [`visual_core::VisualError::OutOfMemory`]).
-pub fn measure<G: Measured>(gpu: &G) -> Result<Times, Failure> {
+pub fn measure<G: TimedGpu>(gpu: &G) -> Result<Times, Failure> {
     if !gpu.has_clock() {
         return Err(NO_CLOCK.into());
     }
@@ -470,7 +481,7 @@ pub fn measure<G: Measured>(gpu: &G) -> Result<Times, Failure> {
 
 /// What the GPU's clock measures of encoding [`IMAGE`] at `size` for display
 /// ([`median_of`]).
-fn encoding_median<G: Measured>(
+fn encoding_median<G: TimedGpu>(
     gpu: &G,
     square: &Square,
     image_size: ImageSize,
@@ -654,10 +665,12 @@ pub struct Gpu {
     pub clock: bool,
 }
 
-/// The seal of [`BenchIo`]: a trait no other crate can name, so none can implement it.
+/// The seal of [`BenchIo`] and [`TimedGpu`]: a trait no other crate can name, so none can
+/// implement them.
 mod sealed {
-    /// Implemented only by this crate's outside worlds: [`System`](super::System) and its
-    /// tests' fake.
+    /// Implemented only by this crate's outside worlds, [`System`](super::System) and its
+    /// tests' fake, and by the GPUs it measures, [`GpuSquare`](crate::GpuSquare) and its
+    /// tests' GPU.
     pub trait Sealed {}
 }
 
