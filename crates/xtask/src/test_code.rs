@@ -23,15 +23,19 @@ use crate::{
 /// test keeps: every word of `reviews` ([`UNVIABLE_REVIEWED`], its comments apart) written
 /// like a function's name of three parts or more (lowercase letters and digits, joined by
 /// `_`) is the name of a `fn` in the tokens of `sources` (the tracked Rust files); after the
-/// line's ` -- ` (its reason), of a `fn` of test code (a crate's `tests/` or `*_tests.rs`
-/// files, the generic test bodies a macro instantiates included). So a test renamed or
-/// removed leaves no review citing it, and a reason cannot cite a function that tests
-/// nothing. Names of two parts are not checked.
+/// line's ` -- ` (its reason), of a `fn` of the test code of the mutated crate, the crate of
+/// [`RUST_CRATES`] holding the line's `<file>.rs` (its `tests/` and `*_tests.rs` files, the
+/// generic test bodies a macro instantiates included), since cargo-mutants runs the tests
+/// of that crate only. So a test renamed or removed leaves no review citing it, and a
+/// reason cannot cite a function that tests nothing, nor a test of another crate, which
+/// never runs against the mutant. Names of two parts are not checked, and a doc test, which
+/// no function names, is seen by a review only.
 ///
 /// # Errors
 ///
-/// Returns every such word that names no function, or in a reason no function of test
-/// code, with its line.
+/// Returns every such word that names no function, or in a reason no function of the test
+/// code of the mutated crate, with its line; and every name of a reason whose file is in no
+/// crate of [`RUST_CRATES`].
 pub fn unviable_names_gate(reviews: &str, sources: &[RustSource]) -> Result<(), Failure> {
     review_names_gate(UNVIABLE_REVIEWED, reviews, sources)
 }
@@ -53,6 +57,8 @@ pub fn review_names_gate(file: &str, reviews: &str, sources: &[RustSource]) -> R
         }
         let at = index.saturating_add(1);
         let (mutant, reason) = line.split_once(" -- ").unwrap_or((line, ""));
+        let mutated = mutant.split_once(": ").map_or(mutant, |(path, _)| path);
+        let owner = in_crate(mutated).map(|(krate, _)| krate.name);
         for name in names(mutant) {
             if !functions.contains(name.as_str()) {
                 problems.push(format!(
@@ -67,11 +73,19 @@ pub fn review_names_gate(file: &str, reviews: &str, sources: &[RustSource]) -> R
                     "{file}:{at}: names `{name}`, which no Rust source defines as a \
                      function: a review names the test that kills its viable variant as it is now"
                 ));
-            } else if !tests.contains(name.as_str()) {
+            } else if let Some(krate) = owner {
+                if !tests.contains(&(krate, name.as_str())) {
+                    problems.push(format!(
+                        "{file}:{at}: names `{name}` as its reason, which no test code of \
+                         {krate}, the mutated crate, defines as a function: a review's reason \
+                         names the test that kills its viable variant among the tests \
+                         cargo-mutants runs, the mutated crate's"
+                    ));
+                }
+            } else {
                 problems.push(format!(
-                    "{file}:{at}: names `{name}` as its reason, which no test code \
-                     defines as a function: a review's reason names the test that kills its \
-                     viable variant"
+                    "{file}:{at}: names `{name}` as its reason, while `{mutated}` is in no \
+                     crate of the workspace: a review's reason names a test of the mutated crate"
                 ));
             }
         }
@@ -80,19 +94,22 @@ pub fn review_names_gate(file: &str, reviews: &str, sources: &[RustSource]) -> R
 }
 
 /// The functions `sources` define, and those of test code among them (a crate's `tests/`
-/// or `*_tests.rs` files, the generic test bodies a macro instantiates included).
-fn defined_functions(sources: &[RustSource]) -> (BTreeSet<&str>, BTreeSet<&str>) {
+/// or `*_tests.rs` files, the generic test bodies a macro instantiates included), each with
+/// the name of its crate.
+fn defined_functions(sources: &[RustSource]) -> (BTreeSet<&str>, BTreeSet<(&'static str, &str)>) {
     let mut functions = BTreeSet::new();
     let mut tests = BTreeSet::new();
     for source in sources {
-        let test_code = is_test_code(source);
+        let test_crate = in_crate(&source.path)
+            .filter(|(_, relative)| rust_test_code(relative))
+            .map(|(krate, _)| krate.name);
         // The token after `fn` is the function's name, or the `(` of a function pointer
         // type, which no review's word can be.
         let named = source.tokens.iter().zip(source.tokens.iter().skip(1));
         for (_, name) in named.filter(|(keyword, _)| keyword.is_ident("fn")) {
             let _new = functions.insert(name.text.as_str());
-            if test_code {
-                let _test = tests.insert(name.text.as_str());
+            if let Some(krate) = test_crate {
+                let _test = tests.insert((krate, name.text.as_str()));
             }
         }
     }
@@ -198,6 +215,7 @@ fn defined_tests(sources: &[RustSource]) -> BTreeSet<&str> {
         }
     }
     let (_, of_test_code) = defined_functions(sources);
+    let of_test_code: BTreeSet<&str> = of_test_code.into_iter().map(|(_, name)| name).collect();
     tests.extend(generic.intersection(&of_test_code));
     tests
 }

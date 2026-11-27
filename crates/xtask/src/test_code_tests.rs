@@ -149,8 +149,9 @@ fn refuses_a_reason_naming_a_function_outside_test_code() {
         unviable_names_gate(review, core::slice::from_ref(&production)),
         failed(format!(
             "{UNVIABLE_REVIEWED}:1: names `unsafe_gate_helper_fn` as its reason, which no test \
-             code defines as a function: a review's reason names the test that kills its \
-             viable variant"
+             code of audio-hash, the mutated crate, defines as a function: a review's reason \
+             names the test that kills its viable variant among the tests cargo-mutants runs, \
+             the mutated crate's"
         )),
         "a production function named as the test that kills the mutant"
     );
@@ -182,16 +183,16 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
             "crates/audio-core/src/lib_tests.rs".to_owned(),
             "type F = fn(u8) -> u8;\nfn kills_the_viable_variant() {}\n// fn in_a_comment_only() {}\nconst A: &str = \"fn in_a_string_only\";\nfn r#raw_named_one() {}\n".to_owned(),
         ),
-        ("crates/audio-hash/tests/x.rs".to_owned(), "pub(crate) fn other_crate_s_test() {}\n".to_owned()),
+        ("crates/audio-core/tests/x.rs".to_owned(), "fn in_its_own_tests_dir() {}\n".to_owned()),
     ];
-    let reviews = "# A comment naming no_such_function_here is prose.\n\ncrates/a/src/lib.rs: replace f -> u8 with 0 -- killed by kills_the_viable_variant and other_crate_s_test\ncrates/a/src/lib.rs: replace g -> u8 with 1 -- killed by raw_named_one, not two_parts nor Not_a_name nor not_A_name\n";
+    let reviews = "# A comment naming no_such_function_here is prose.\n\ncrates/audio-core/src/lib.rs: replace f -> u8 with 0 -- killed by kills_the_viable_variant and in_its_own_tests_dir\ncrates/audio-core/src/lib.rs: replace g -> u8 with 1 -- killed by raw_named_one, not two_parts nor Not_a_name nor not_A_name\n";
     assert_eq!(
         unviable_names_gate(reviews, &sources),
         Ok(()),
-        "every name a function"
+        "every name a function of the mutated crate's test code, unit tests and tests/"
     );
     let dead = format!(
-        "{reviews}crates/a/src/lib.rs: replace h -> u8 with 2 -- killed by in_a_comment_only\ncrates/a/src/lib.rs: replace i -> u8 with 3 -- killed by in_a_string_only or renamed_since_the_review\ncrates/a/src/lib.rs: replace no_such_mutated_fn -> u8 with 4 -- killed by kills_the_viable_variant\n"
+        "{reviews}crates/audio-core/src/lib.rs: replace h -> u8 with 2 -- killed by in_a_comment_only\ncrates/audio-core/src/lib.rs: replace i -> u8 with 3 -- killed by in_a_string_only or renamed_since_the_review\ncrates/audio-core/src/lib.rs: replace no_such_mutated_fn -> u8 with 4 -- killed by kills_the_viable_variant\n"
     );
     assert_eq!(
         unviable_names_gate(&dead, &sources),
@@ -213,6 +214,61 @@ fn refuses_a_review_naming_a_function_no_source_holds() {
             usage: false,
         }),
         "names only in prose, one renamed, a mutated function that no longer exists"
+    );
+}
+
+#[test]
+fn refuses_a_reason_naming_a_test_of_another_crate() {
+    let sources = [
+        (
+            "crates/audio-core/src/lib_tests.rs".to_owned(),
+            "fn kills_the_viable_variant() {}\n".to_owned(),
+        ),
+        (
+            "crates/audio-boxes/src/lib_tests.rs".to_owned(),
+            "fn other_crate_s_test() {}\n".to_owned(),
+        ),
+        (
+            "crates/audio-hash/tests/x.rs".to_owned(),
+            "pub(crate) fn other_crate_s_tests_dir() {}\n".to_owned(),
+        ),
+    ];
+    let review = |path: &str, killer: &str| {
+        format!(
+            "{path}: replace f -> u8 with 0 -- killed by kills_the_viable_variant and {killer}\n"
+        )
+    };
+    assert_eq!(
+        unviable_names_gate(
+            &review("crates/audio-core/src/lib.rs", "kills_the_viable_variant"),
+            &sources
+        ),
+        Ok(()),
+        "a killer of the mutated crate's own tests"
+    );
+    for killer in ["other_crate_s_test", "other_crate_s_tests_dir"] {
+        assert_eq!(
+            unviable_names_gate(&review("crates/audio-core/src/lib.rs", killer), &sources),
+            failed(format!(
+                "{UNVIABLE_REVIEWED}:1: names `{killer}` as its reason, which no test code of \
+                 audio-core, the mutated crate, defines as a function: a review's reason names \
+                 the test that kills its viable variant among the tests cargo-mutants runs, the \
+                 mutated crate's"
+            )),
+            "a killer in another crate's test code, which never runs against the mutant: {killer}"
+        );
+    }
+    assert_eq!(
+        unviable_names_gate(
+            "crates/a/src/lib.rs: replace f -> u8 with 0 -- killed by kills_the_viable_variant\n",
+            &sources
+        ),
+        failed(format!(
+            "{UNVIABLE_REVIEWED}:1: names `kills_the_viable_variant` as its reason, while \
+             `crates/a/src/lib.rs` is in no crate of the workspace: a review's reason names a \
+             test of the mutated crate"
+        )),
+        "a mutated file in no crate, of which no test can be named"
     );
 }
 

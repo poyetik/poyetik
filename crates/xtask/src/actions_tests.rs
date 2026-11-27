@@ -2494,7 +2494,7 @@ fn stops_each_gate_at_whichever_read_fails() {
     }
     assert_eq!(unnamed, Vec::<String>::new(), "each failure named");
     // Exact, so that a gate whose calls are no longer all broken, or a new call, shows here.
-    assert_eq!(calls, 1312, "every way each gate's calls fail");
+    assert_eq!(calls, 1327, "every way each gate's calls fail");
 }
 
 #[test]

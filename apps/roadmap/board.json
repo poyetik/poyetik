@@ -1023,7 +1023,7 @@
           "done": false
         },
         {
-          "title": "Unviable reviews: a review names the test that kills the viable variant, but nothing shows that the test exercises the function, and four named tests never called theirs; confirm every named killer by applying the viable variant and seeing that test fail, correct the others, require the named test to be in the mutated crate, the only tests the mutant's run runs, and decide whether the gate can require it to reach the function",
+          "title": "Unviable reviews: a review names the test that kills the viable variant, but nothing shows that the test exercises the function, and four named tests never called theirs; confirm every named killer by applying the viable variant and seeing that test fail, correct the others, and decide whether the gate can require the named test to reach the function",
           "done": false
         },
         {

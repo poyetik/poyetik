@@ -979,6 +979,10 @@ fn runs_every_step_and_reports_success() {
                     && krate.workspace == crate::CargoWorkspace::Root
             })
             .count()
+        // The test of visual-core that the corpus's exemption names, the killer of its own
+        // crate the names gate of the reviews requires, read by the nine gates of every Rust
+        // source.
+        + 9
         // The root of each `no_std` crate not built for every portability target, which the
         // fake holds for the portability gate, read by the nine gates of every Rust source.
         + 9 * crate::NO_STD_NOT_PORTABLE.len()
