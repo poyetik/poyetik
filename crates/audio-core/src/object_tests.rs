@@ -734,8 +734,9 @@ fn decides_the_width_as_the_subtraction_rounded_to_nearest() {
     );
     // Bounds of one sign are never too far apart.
     for &bound in &bounds {
-        assert!(
-            checked(bound, bound, f64::MAX).is_ok(),
+        assert_eq!(
+            checked(bound, bound, f64::MAX),
+            Ok([bound.to_bits(), bound.to_bits(), f64::MAX.to_bits()]),
             "[{bound:e}, the largest]"
         );
     }
@@ -1103,20 +1104,39 @@ fn refuses_the_first_of_two_driven_frames_out_of_range() {
     );
 }
 
-/// On a test's thread, whose stack is smaller than one block of the largest engine block.
+/// On a thread whose stack is half of one block of the largest engine block, whatever stack
+/// the test's threads are given (`RUST_MIN_STACK`): a block made on the stack overflows it.
 #[test]
 fn drives_with_picked_values_at_the_largest_engine_block() {
+    extern crate std;
     const LAST: usize = crate::MAX_ENGINE_BLOCK - 1;
-    let driven =
-        DrivenValues::<{ crate::MAX_ENGINE_BLOCK }>::within(&TOLD, |_, _, frame| match frame {
-            0 => 2.0_f64,
-            LAST => 3.0_f64,
-            _ => 4.0_f64,
-        });
+    const BLOCK: usize = size_of::<Block<Binary64, { crate::MAX_ENGINE_BLOCK }>>();
     assert_eq!(
-        driven.blocks.first().map(|block| {
-            [block[0], block[1], block[LAST - 1], block[LAST]].map(|value| value.raw().to_bits())
-        }),
+        BLOCK,
+        8 * 1_048_576,
+        "a block of 2^20 binary64 values, 8 MiB"
+    );
+    let picked = std::thread::Builder::new()
+        .stack_size(BLOCK / 2)
+        .spawn(|| {
+            let driven = DrivenValues::<{ crate::MAX_ENGINE_BLOCK }>::within(
+                &TOLD,
+                |_, _, frame| match frame {
+                    0 => 2.0_f64,
+                    LAST => 3.0_f64,
+                    _ => 4.0_f64,
+                },
+            );
+            driven.blocks.first().map(|block| {
+                [block[0], block[1], block[LAST - 1], block[LAST]]
+                    .map(|value| value.raw().to_bits())
+            })
+        })
+        .expect("a thread")
+        .join()
+        .expect("no panic");
+    assert_eq!(
+        picked,
         Some([2.0_f64, 4.0_f64, 4.0_f64, 3.0_f64].map(f64::to_bits)),
         "frame by frame, to the last"
     );

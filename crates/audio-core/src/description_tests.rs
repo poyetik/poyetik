@@ -569,8 +569,9 @@ fn texts_in(value: &str) -> [(Option<DescriptionError>, Field, bool); 6] {
 }
 
 /// Each end of every range a message escapes (`spec/safe-message-vectors.json`, its
-/// `unsafe` vector), a newline, a tab and an escape among them, refused in every text,
-/// named by its code point, before the text is found blank.
+/// `unsafe` vector, which takes DEL and C1 as one range), a newline, a tab and an escape among
+/// them, and U+0080, where C1 begins, refused in every text, named by its code point, before
+/// the text is found blank.
 #[test]
 fn refuses_in_every_text_the_characters_a_message_escapes() {
     for character in [
