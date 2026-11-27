@@ -741,6 +741,12 @@ fn refuses_each_allocation_and_count_where_it_comes() {
     use super::{Seams, check_laws_with};
     let real = Seams::REAL;
     let room = "image 1x1 does not fit in this machine's memory: 16 bytes are needed";
+    // Every refusal below comes at the first rate, size and index of the matrix.
+    let first = super::place(
+        *crate::matrix::image_rates().first().expect("a rate"),
+        *crate::matrix::image_sizes().first().expect("a size"),
+        *crate::matrix::image_indices().first().expect("an index"),
+    );
     // No count at all: refused before any law, as without the counting allocator.
     assert_eq!(
         check_laws_with(
@@ -762,7 +768,7 @@ fn refuses_each_allocation_and_count_where_it_comes() {
                 ..real
             }
         ),
-        Err("not counted".to_owned()),
+        Err(format!("not counted while rendering at {first}")),
         "the first render's count"
     );
     assert_eq!(
@@ -779,7 +785,7 @@ fn refuses_each_allocation_and_count_where_it_comes() {
                 ..real
             }
         ),
-        Err(room.to_owned()),
+        Err(format!("{room} while rendering at {first}")),
         "the first image"
     );
     // The first pass allocates three images an index (the first instance's, the second's,
@@ -789,7 +795,11 @@ fn refuses_each_allocation_and_count_where_it_comes() {
     // is the first pass's image of other values, the allocation 4n + 1 the jumping pass's,
     // and the allocation 6n the first image rendered alone.
     let indices = u32::try_from(crate::matrix::image_indices().len()).expect("a count");
-    for refused in [2, 4 * indices + 1, 6 * indices] {
+    for (refused, how) in [
+        (2, " over other values"),
+        (4 * indices + 1, ", the same image again,"),
+        (6 * indices, ", alone,"),
+    ] {
         ALLOCATIONS.store(0, Ordering::Relaxed);
         REFUSED.store(refused, Ordering::Relaxed);
         assert_eq!(
@@ -800,7 +810,7 @@ fn refuses_each_allocation_and_count_where_it_comes() {
                     ..real
                 }
             ),
-            Err(room.to_owned()),
+            Err(format!("{room} while rendering{how} at {first}")),
             "allocation {refused}"
         );
         assert_eq!(

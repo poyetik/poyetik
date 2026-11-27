@@ -82,7 +82,8 @@ fn render_into(
     at: &str,
     how: &str,
 ) -> Result<(), String> {
-    let operations = (seams.count)(&mut || visual.render(index, image))?;
+    let operations = (seams.count)(&mut || visual.render(index, image))
+        .map_err(|error| format!("{error} while rendering{how} at {at}"))?;
     if operations == 0 {
         Ok(())
     } else {
@@ -101,18 +102,29 @@ fn render(
     at: &str,
     how: &str,
 ) -> Result<Image, String> {
-    let mut image = (seams.image)(size)?;
+    let mut image = allocated(seams, size, at, how)?;
     render_into(seams, visual, &mut image, index, at, how)?;
     Ok(image)
 }
 
-/// An image of `size` whose every value is NaN: what rendering leaves unwritten shows.
+/// An image of `size` for the pass `how` to render into at `at`, allocated by `seams`.
 ///
 /// # Errors
 ///
-/// Returns why the machine cannot hold it.
-fn dirty(seams: Seams, size: ImageSize) -> Result<Image, String> {
-    let mut image = (seams.image)(size)?;
+/// Returns why the machine cannot hold it, then the pass and the place, as a law broken
+/// names them.
+fn allocated(seams: Seams, size: ImageSize, at: &str, how: &str) -> Result<Image, String> {
+    (seams.image)(size).map_err(|error| format!("{error} while rendering{how} at {at}"))
+}
+
+/// An image of `size` whose every value is NaN, for the pass `how` to render into at `at`:
+/// what rendering leaves unwritten shows.
+///
+/// # Errors
+///
+/// As [`allocated`].
+fn dirty(seams: Seams, size: ImageSize, at: &str, how: &str) -> Result<Image, String> {
+    let mut image = allocated(seams, size, at, how)?;
     for row in image.rows_mut() {
         row.fill(f32::NAN);
     }
@@ -189,7 +201,8 @@ fn check_values(image: &Image, at: &str) -> Result<(), String> {
 /// matrix, at the simplest random case found to break it, after "Test failed: ", with the
 /// images drawn in their order. Also fails when
 /// [`crate::CountingAllocator`] is not installed, since the no-heap law could not be
-/// checked.
+/// checked, and when the machine cannot hold an image a law renders into (the library's
+/// [`visual_core::VisualError::OutOfMemory`]), naming the pass and the place.
 pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
     check_laws_with(make, Seams::REAL)
 }
@@ -198,7 +211,8 @@ pub fn check_laws(make: &Factory<'_>) -> Result<(), String> {
 ///
 /// # Errors
 ///
-/// As [`check_laws`], and the first allocation or count `seams` refuses.
+/// As [`check_laws`], its images allocated and its heap operations counted by `seams`: the
+/// first allocation or count refused, a count named as an allocation is.
 fn check_laws_with(make: &Factory<'_>, seams: Seams) -> Result<(), String> {
     let _: usize = (seams.count)(&mut || ())?;
     let indices = image_indices();
@@ -335,7 +349,7 @@ fn check_at(
         if !same_bits(&again, &image) {
             return Err(format!("determinism: two fresh instances differ at {at}"));
         }
-        let mut over = dirty(seams, size)?;
+        let mut over = dirty(seams, size, &at, " over other values")?;
         render_into(
             seams,
             third.as_mut(),
@@ -396,7 +410,7 @@ fn check_at(
             &at,
             ", jumping between images,",
         )?;
-        let mut twice = dirty(seams, size)?;
+        let mut twice = dirty(seams, size, &at, ", the same image again,")?;
         render_into(
             seams,
             jumping.as_mut(),
