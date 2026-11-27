@@ -16,10 +16,10 @@ static ALLOCATOR: audio_testkit::CountingAllocator = audio_testkit::CountingAllo
 #[cfg(test)]
 mod tests {
     use audio_core::host::{
-        BufferRun, Description, Field, Header, HeaderError, PortKind, Response, RunError, Runs,
-        RunsError,
+        BufferRun, Description, Fault, Field, Header, HeaderError, PortKind, Response, RunError,
+        Runs, RunsError,
     };
-    use audio_core::{Binary32, Binary64, BoxMode, Capability, Sample};
+    use audio_core::{Binary32, Binary64, BoxMode, Capability, RangeRule, Sample};
     use audio_testkit::heap_operations_during;
     use audio_testkit::runner::{fork, runner};
     use proptest::collection::vec;
@@ -256,13 +256,59 @@ mod tests {
         );
     }
 
-    /// The control of the law: its bytes reach acceptance and refusals of every field.
+    /// The words of `fault`'s kind.
+    fn fault_name(fault: Fault) -> &'static str {
+        match fault {
+            Fault::Truncated => "truncated",
+            Fault::Trailing { .. } => "trailing",
+            Fault::Code(_) => "code",
+            Fault::Reserved(_) => "reserved",
+            Fault::Zero => "zero",
+            Fault::TooLong { .. } => "too long",
+            Fault::TooMany { .. } => "too many",
+            Fault::NotUtf8 => "not UTF-8",
+            Fault::Blank => "blank",
+            Fault::Character(_) => "character",
+            Fault::Whitespace => "whitespace",
+            Fault::Spaces => "spaces",
+            Fault::Repeated { .. } => "repeated",
+            Fault::Range {
+                rule: RangeRule::NotFinite(_),
+                ..
+            } => "not finite",
+            Fault::Range {
+                rule: RangeRule::Reversed,
+                ..
+            } => "reversed",
+            Fault::Range {
+                rule: RangeRule::Unreachable(_),
+                ..
+            } => "unreachable",
+            Fault::Range {
+                rule: RangeRule::Width,
+                ..
+            } => "width",
+            Fault::Range {
+                rule: RangeRule::Default,
+                ..
+            } => "default",
+            Fault::Range { .. } | _ => "another",
+        }
+    }
+
+    /// The control of the law: its bytes reach acceptance, refusals of every field and each
+    /// fault but two, which `audio-core`'s tests of its reader hold: the one only a description
+    /// past its largest size gives (`bounds_the_whole_description_and_nothing_inside_it`), and
+    /// a range whose width is not finite, whose two bounds of opposite signs near the largest
+    /// values the draws hardly ever pair
+    /// (`refuses_a_parameter_whose_range_or_default_no_value_meets`).
     #[test]
     fn the_descriptions_reach_acceptance_and_every_field() {
         let mut runner = runner(CASES);
         let strategy = given();
         let mut accepted = 0_u32;
         let mut refused = Vec::new();
+        let mut faults = Vec::new();
         for _ in 0..CASES {
             let bytes = strategy
                 .new_tree(&mut runner)
@@ -275,6 +321,7 @@ mod tests {
                     ));
                 }
                 Err(error) => {
+                    faults.push(fault_name(error.fault));
                     refused.push(match error.field {
                         Field::Whole => "whole",
                         Field::AlgorithmVersion => "algorithm version",
@@ -322,6 +369,30 @@ mod tests {
             refused, every,
             "every field but the whole, refused above 2^24 bytes"
         );
+        faults.sort_unstable();
+        faults.dedup();
+        assert_eq!(
+            faults,
+            [
+                "blank",
+                "character",
+                "code",
+                "default",
+                "not UTF-8",
+                "not finite",
+                "repeated",
+                "reserved",
+                "reversed",
+                "spaces",
+                "too many",
+                "trailing",
+                "truncated",
+                "unreachable",
+                "whitespace",
+                "zero",
+            ],
+            "every fault but a description too long and a width not finite"
+        );
     }
 
     /// An integer a module gives: small, or any.
@@ -329,6 +400,9 @@ mod tests {
         prop_oneof![3 => 0_u32..40, 1 => any::<u32>()]
     }
 
+    /// Its generator reaches each answer of the model, by inspection rather than by a count:
+    /// offsets and lengths mostly below 40 against memories of 8 to 51 bytes give headers
+    /// inside and past their memory, and descriptions inside and past it.
     #[test]
     fn a_header_is_read_within_its_memory_or_refused() {
         let memory = (integer(), integer(), vec(any::<u8>(), 0..40), 0_usize..4).prop_map(
@@ -490,6 +564,10 @@ mod tests {
         }
     }
 
+    /// Its generator reaches each answer of the model, by inspection rather than by a count:
+    /// any offset is mostly misaligned, a span of 0 or past 2^20 frames is drawn, offsets near
+    /// the end of 32 bits and memories of up to 16 KiB end runs past their memory, and two
+    /// small aligned offsets with ports on both sides overlap or not.
     #[test]
     fn runs_of_buffers_are_accepted_or_refused_as_wider_integers_say() {
         let offset = || {
