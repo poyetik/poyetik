@@ -349,16 +349,24 @@ fn hashes_the_bytes_the_specification_lays_out_for_any_values() {
 }
 
 /// A text output that takes as many writes as its count, then refuses every one, keeping
-/// what it took.
-struct Refusing(usize, alloc::string::String);
+/// what it took and counting the writes asked.
+struct Refusing {
+    /// The writes still taken.
+    left: usize,
+    /// What it took.
+    taken: alloc::string::String,
+    /// Every write asked, refused or not.
+    asked: usize,
+}
 
 impl core::fmt::Write for Refusing {
     fn write_str(&mut self, text: &str) -> core::fmt::Result {
-        if self.0 == 0 {
+        self.asked = self.asked.saturating_add(1);
+        if self.left == 0 {
             return Err(core::fmt::Error);
         }
-        self.0 = self.0.saturating_sub(1);
-        self.1.push_str(text);
+        self.left = self.left.saturating_sub(1);
+        self.taken.push_str(text);
         Ok(())
     }
 }
@@ -368,12 +376,40 @@ fn stops_showing_at_the_first_write_refused() {
     use core::fmt::Write as _;
     let shown = hash(size(1, 1), &[]);
     let digits = shown.to_string();
-    // The first byte's two digits are one write, taken; the second byte's is refused.
-    let mut output = Refusing(1, alloc::string::String::new());
-    assert_eq!(write!(output, "{shown}"), Err(core::fmt::Error), "refused");
+    // Each byte's two digits are one write: each write refused in turn, nothing is written
+    // after it, and what was taken is the bytes before it.
+    let writes = digits.len() / 2;
+    for left in 0..writes {
+        let mut output = Refusing {
+            left,
+            taken: alloc::string::String::new(),
+            asked: 0,
+        };
+        assert_eq!(
+            write!(output, "{shown}"),
+            Err(core::fmt::Error),
+            "write {left} refused"
+        );
+        assert_eq!(
+            output.taken,
+            digits.get(..2 * left).unwrap_or_default(),
+            "write {left} refused: the bytes before it"
+        );
+        assert_eq!(
+            output.asked,
+            left + 1,
+            "write {left} refused: none after it"
+        );
+    }
+    let mut whole = Refusing {
+        left: writes,
+        taken: alloc::string::String::new(),
+        asked: 0,
+    };
+    assert_eq!(write!(whole, "{shown}"), Ok(()), "every write taken");
     assert_eq!(
-        output.1,
-        digits.get(..2).unwrap_or_default(),
-        "the first byte, then nothing"
+        (whole.taken, whole.asked),
+        (digits, writes),
+        "one write a byte"
     );
 }
