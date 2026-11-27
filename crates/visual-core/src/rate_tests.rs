@@ -31,14 +31,18 @@ fn computes_the_greatest_common_divisor() {
 
 #[test]
 fn accepts_reduced_rates_within_range() {
-    // The last: a denominator whose thousandfold overflows `u32`, about one image a second.
+    // The last two at the edge of the maximum's two regimes, each just under 1000 a
+    // second: the largest denominator whose thousandfold fits a `u32` (4,294,967,000), and
+    // the smallest whose thousandfold overflows it, no `u32` numerator then above the
+    // maximum.
     for (numerator, denominator) in [
         (1, 1),
         (24_000, 1001),
         (30_000, 1001),
         (1000, 1),
         (25, 1),
-        (u32::MAX, u32::MAX - 1),
+        (4_294_966_999, 4_294_967),
+        (4_294_967_293, 4_294_968),
     ] {
         let rate = ImageRate::new(numerator, denominator);
         assert_eq!(
@@ -66,6 +70,9 @@ fn rejects_unreduced_out_of_range_or_undefined_rates() {
         (5, 0),
         (0, 0),
         (u32::MAX, 1),
+        // Reduced, but just above 1000 a second, the thousandfold of its denominator just
+        // fitting a `u32`.
+        (4_294_967_001, 4_294_967),
     ] {
         assert_eq!(
             ImageRate::new(numerator, denominator),
