@@ -2667,7 +2667,8 @@ pub(crate) fn unrefused_by(
     let mut written = Vec::new();
     assert_eq!(run(&mut whole, &mut written), Ok(()), "{label}: passing");
     // Each line it writes, refused in turn: it fails there, as a closed stdout makes it.
-    let lines = String::from_utf8_lossy(&written).matches('\n').count();
+    let passing = String::from_utf8_lossy(&written).into_owned();
+    let lines = passing.matches('\n').count();
     for accepted in 0..lines {
         let refused = run(&mut fake(), &mut Limited(accepted));
         if refused != failed("cannot write to stdout: closed") {
@@ -2692,13 +2693,18 @@ pub(crate) fn unrefused_by(
         broken.broken = Some(call.clone());
         broken.spared = spared;
         let mut out = Vec::new();
-        let failed = run(&mut broken, &mut out).map_err(|failure| failure.summary);
         // Either the check fails, or it goes on and says so: an optional step (a proof
-        // record, a test order) on one line naming what it could not do. Either way the
-        // call is named, by its last word (a path, a command's last argument).
-        let said = failed
-            .err()
-            .unwrap_or_else(|| String::from_utf8_lossy(&out).into_owned());
+        // record, a test order) on a line of its own, one the passing run never writes,
+        // naming what it could not do. Either way the call is named, by its last word (a
+        // path, a command's last argument).
+        let said = match run(&mut broken, &mut out) {
+            Err(failure) => failure.summary,
+            Ok(()) => String::from_utf8_lossy(&out)
+                .lines()
+                .filter(|line| !passing.lines().any(|known| known == *line))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        };
         let last = ["read ", "capture ", "list ", "write "]
             .iter()
             .find_map(|kind| call.strip_prefix(kind))
