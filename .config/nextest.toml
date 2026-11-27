@@ -31,7 +31,9 @@
 # least 1 s in each of those baselines): the check stopped at each call that fails in, 9.0
 # to 10.5 s, each gate at each read 1.3 to 2.1, the honest change mutated staged or not 1.4
 # to 1.8, git read whatever the user's configuration 1.8 to 2.0, and three of the proof
-# record's real-git tests 2.2 to 7.8.
+# record's real-git tests 2.2 to 7.8. And the test of a box's values under every host mode
+# (2026-11-27, the run of `cargo xtask mutants --changed`, the machine otherwise idle):
+# 1.4 s in that baseline, in.
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-boxes) & test(=osc::tests::measures_within_its_derived_thresholds_at_every_rate)'
@@ -175,6 +177,10 @@ priority = -1
 
 [[profile.default.overrides]]
 filter = 'binary_id(=audio-core) & test(=limiter::tests::takes_the_last_lookahead_set_between_two_frames_alone)'
+priority = -1
+
+[[profile.default.overrides]]
+filter = 'binary_id(=audio-core) & test(=object::tests::answers_alike_under_every_host_mode)'
 priority = -1
 
 [[profile.default.overrides]]
