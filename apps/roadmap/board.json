@@ -548,7 +548,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-26",
+      "updatedAt": "2026-11-27",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -1255,7 +1255,7 @@
           "done": false
         },
         {
-          "title": "Every validating constructor proven by mutation: cargo-mutants never mutates a function named new in an impl, so each new becomes one expression delegating to a function of another name, which it mutates, and a gate refuses a new holding more. Sites: audio-core 14, audio-host 3, audio-boxes 1, audio-cli 1, visual-core 4, visual-gpu 3, visual-host 2, visual-boxes 1, visual-hash 1, xtask 1. First confirm with cargo mutants --list that the delegated function's mutants are listed",
+          "title": "Every validating constructor proven by mutation: cargo-mutants never mutates a function named new in an impl, so each new becomes one expression delegating to a function of another name, which it mutates, and a gate refuses a new holding more. Sites, counted as every fn new in a crate's src outside its test files: audio-core 16, audio-host 3, audio-boxes 1, audio-cli 1, visual-core 4, visual-gpu 3, visual-host 2, visual-boxes 1, visual-hash 1, xtask 1. First confirm with cargo mutants --list that the delegated function's mutants are listed",
           "done": false
         }
       ]
@@ -1776,7 +1776,7 @@
       "column": "doing",
       "milestone": "M3 Visuals",
       "createdAt": "2026-11-09",
-      "updatedAt": "2026-11-25",
+      "updatedAt": "2026-11-27",
       "tasks": [
         {
           "title": "Visual box contract in the standalone visual library (no dependency on the audio library), with the optional mapping from output points back to what produced them, and a square box with exact edge coverage (antialiasing)",
@@ -1818,6 +1818,10 @@
         },
         {
           "title": "Deep review: every finding analyzed and applied, then a fresh review",
+          "done": false
+        },
+        {
+          "title": "The preflight refuses every variable that changes which GPU driver the tests run on: the Vulkan loader's driver filters and layers, and the software renderer's own, besides the driver lists it already refuses",
           "done": false
         }
       ]
@@ -2071,7 +2075,7 @@
       "column": "next",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-25",
-      "updatedAt": "2026-11-25",
+      "updatedAt": "2026-11-27",
       "tasks": [
         {
           "title": "Measure region coverage over every crate of both workspaces and sort what is left by kind: an early return of ? never taken, a region left only by another instantiation of a generic function, a region of test code, other",
@@ -2091,6 +2095,10 @@
         },
         {
           "title": "Code merged while this card is open meets the region gate when it lands",
+          "done": false
+        },
+        {
+          "title": "Bring the two harnesses of xtask's tests that break each call in turn, one over the checks and one over the gates, under one, if it can hold the rules of both without weakening either",
           "done": false
         }
       ]
