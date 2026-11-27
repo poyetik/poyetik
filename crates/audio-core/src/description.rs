@@ -48,9 +48,10 @@ pub enum TextKind {
 ///   `gain` and `gain` followed by U+200B would read as one name: a default-ignorable code
 ///   point (Unicode's `Default_Ignorable_Code_Point`, as its version 14.0 lists it), U+2800,
 ///   the braille pattern without a dot, or whitespace other than U+0020 (`White_Space`, as
-///   Unicode 14.0 lists it), which reads as one;
+///   Unicode 14.0 lists it), which reads as one, or a format character that shows nothing
+///   outside those (U+FFF9 to U+FFFB, U+13430 to U+13438);
 /// - [`Fault::Blank`], a text that shows nothing: empty, or whitespace, default-ignorable
-///   code points and U+2800 alone;
+///   code points, U+2800 and those format characters alone;
 /// - [`Fault::Whitespace`], U+0020 in the name of a box type;
 /// - [`Fault::Spaces`], U+0020 at the start or the end of the name of a port or a parameter,
 ///   or after another, where it shows nothing or little.
@@ -72,10 +73,18 @@ pub fn text_fault(text: &str, kind: TextKind) -> Option<Fault> {
         })
 }
 
-/// Whether `character` shows nothing: whitespace, a default-ignorable code point, or U+2800,
-/// the braille pattern without a dot.
+/// Whether `character` shows nothing: whitespace, a default-ignorable code point, U+2800, the
+/// braille pattern without a dot, or a format character outside them that shows nothing, as
+/// Unicode 14.0 lists them: U+FFF9 to U+FFFB, the interlinear annotation characters, and
+/// U+13430 to U+13438, the Egyptian hieroglyph format controls (the other format characters,
+/// such as U+0600 to U+0605, show a sign).
 const fn shows_nothing(character: char) -> bool {
-    white_space(character) || default_ignorable(character) || character == '\u{2800}'
+    white_space(character)
+        || default_ignorable(character)
+        || matches!(
+            character,
+            '\u{2800}' | '\u{fff9}'..='\u{fffb}' | '\u{13430}'..='\u{13438}'
+        )
 }
 
 /// Whether `character` is whitespace (Unicode 14.0's `PropList.txt`, `White_Space`): the set

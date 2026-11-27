@@ -596,8 +596,9 @@ fn refuses_in_every_text_the_characters_a_message_escapes() {
 }
 
 /// Each end of every range of Unicode's `Default_Ignorable_Code_Point`
-/// (`DerivedCoreProperties.txt`), refused in a name, which it would hide, and kept in a
-/// description text (a joiner shapes emoji and scripts); a description text of those and
+/// (`DerivedCoreProperties.txt`), and of the format characters outside it that show nothing
+/// (U+FFF9 to U+FFFB, U+13430 to U+13438), refused in a name, which it would hide, and kept in
+/// a description text (a joiner shapes emoji and scripts); a description text of those and
 /// whitespace alone shows nothing, and is blank.
 #[test]
 fn refuses_in_names_the_code_points_that_show_nothing() {
@@ -621,6 +622,10 @@ fn refuses_in_names_the_code_points_that_show_nothing() {
         '\u{ffa0}',
         '\u{fff0}',
         '\u{fff8}',
+        '\u{fff9}',
+        '\u{fffb}',
+        '\u{13430}',
+        '\u{13438}',
         '\u{1bca0}',
         '\u{1bca3}',
         '\u{1d173}',
@@ -679,7 +684,11 @@ fn keeps_the_neighbors_of_every_refused_range() {
         '\u{ff9f}',
         '\u{ffa1}',
         '\u{ffef}',
-        '\u{fff9}',
+        '\u{fffc}',
+        // The low neighbor of the Egyptian hieroglyph format controls alone: U+13439, their
+        // high one, is unassigned in Unicode 14.0, the contract's version, but a format
+        // control that shows nothing from Unicode 15.0 on, so that no fixture keeps it.
+        '\u{1342f}',
         '\u{1bc9f}',
         '\u{1bca4}',
         '\u{1d172}',
