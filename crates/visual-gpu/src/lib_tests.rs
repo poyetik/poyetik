@@ -1346,21 +1346,24 @@ fn says_when_the_gpu_refuses_a_pass_on_an_intact_device() {
     let size = ImageSize::new(1024, 256).expect("a valid size");
     let image = Image::try_new(size).expect("room");
     let mut display = DisplayImage::try_new(size).expect("room");
-    let encoded = over.encode(&image, &mut display);
-    assert!(
-        matches!(&encoded, Err(GpuError::Refused(why)) if why.contains("maximum buffer size")),
-        "encode: {encoded:?}"
-    );
+    // wgpu-core's own words, the same on every back end: the values' buffer refused by its
+    // validation, against the limit this device was opened with.
+    let refused = Err(GpuError::Refused(
+        "Validation Error\n\nCaused by:\n  In Device::create_buffer, label = 'values'\n    Buffer \
+         size 2097152 is greater than the maximum buffer size (1048576)\n"
+            .to_owned(),
+    ));
+    assert_eq!(over.encode(&image, &mut display), refused, "encode");
     let square = square(
         ImageRate::new(60, 1).expect("a valid rate"),
         39_322,
         (1001, 1000),
     );
     let mut rendered = Image::try_new(size).expect("room");
-    let outcome = over.render(&square, ImageIndex(0), &mut rendered);
-    assert!(
-        matches!(&outcome, Err(GpuError::Refused(why)) if why.contains("maximum buffer size")),
-        "render: {outcome:?}"
+    assert_eq!(
+        over.render(&square, ImageIndex(0), &mut rendered),
+        refused,
+        "render"
     );
 }
 
