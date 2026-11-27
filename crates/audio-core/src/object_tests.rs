@@ -741,6 +741,147 @@ fn decides_the_width_as_the_subtraction_rounded_to_nearest() {
     }
 }
 
+/// The answers `answer` gives under every host mode that traps nothing (`fpenv`'s modes:
+/// each rounding, flush-to-zero and denormals-are-zero, and the other fields), each compared
+/// with its answer in the default mode; a control in the same modes shows that some round a
+/// subtraction beyond binary64 to a finite number and some flush a subnormal result, so that
+/// the comparison runs where a mode could change an answer.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the range rule's answers are compared under forced host modes on purpose, through this helper only"
+)]
+fn alike_under_every_host_mode<R: PartialEq + core::fmt::Debug>(
+    what: &str,
+    answer: impl Fn() -> Vec<R>,
+) {
+    let expected = answer();
+    let mut seen = [0_u32; 2];
+    for host in fpenv::host::every_host_mode().filter(|&mode| !fpenv::host::traps(mode)) {
+        let (_, (given, width, half)) = fpenv::host::as_host(host, || {
+            (
+                answer(),
+                core::hint::black_box(f64::MAX) - core::hint::black_box(f64::MIN),
+                core::hint::black_box(f64::MIN_POSITIVE) / core::hint::black_box(2.0_f64),
+            )
+        });
+        // The first answer that differs, with its position, rather than every answer.
+        let first = given
+            .iter()
+            .zip(&expected)
+            .enumerate()
+            .find(|(_, (forced, default))| forced != default);
+        assert_eq!(
+            (given.len(), first),
+            (expected.len(), None),
+            "{what} under the host mode {host:#x}: the answers, and the first that differs \
+             from the default mode's"
+        );
+        seen[0] = seen[0].saturating_add(u32::from(width.is_finite()));
+        seen[1] = seen[1].saturating_add(u32::from(half.to_bits() == 0));
+    }
+    assert!(
+        seen.iter().all(|&count| count > 0),
+        "the control: a width rounded to a finite number, a subnormal flushed, {seen:?}"
+    );
+}
+
+/// The values at the edges of every rule of a range: zeros of both signs, 2^-126 and the
+/// subnormal numbers below it, the bounds of the widest ranges and of the tie at 2^1024,
+/// the infinities, and NaN of three payloads and both signs.
+fn edges() -> [f64; 20] {
+    let half = f64::from_bits(0x7fe0_0000_0000_0000);
+    let tie = f64::from_bits(0x7c90_0000_0000_0000);
+    [
+        0.0,
+        -0.0,
+        SMALLEST,
+        -SMALLEST,
+        SMALLEST.next_down(),
+        -f64::from_bits(1),
+        1.0,
+        -1.0,
+        half,
+        -half,
+        half.next_down(),
+        tie,
+        -tie.next_up(),
+        f64::MAX,
+        f64::MIN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NAN,
+        f64::from_bits(0xfff0_0000_0000_0001),
+        f64::from_bits(0x7ff4_0000_0000_0000),
+    ]
+}
+
+/// No floating-point mode of a host changes what the range rule decides, nor what a range
+/// accepts, nor the values a box type is given or driven by: every answer under a forced
+/// mode is the default mode's (finding D2-1 of the third deep review of #12 block 3). A
+/// width decided by the subtraction, `(maximum - minimum).is_finite()`, passes the tests
+/// above and fails here: a host rounding toward zero or down takes the widest ranges as
+/// finite.
+#[test]
+fn answers_alike_under_every_host_mode() {
+    let edges = edges();
+    alike_under_every_host_mode("the range rule and what a range accepts", || {
+        let mut answers = Vec::new();
+        for &minimum in &edges {
+            for &maximum in &edges {
+                for default_value in [
+                    0.0_f64,
+                    -0.0_f64,
+                    SMALLEST.next_down(),
+                    -f64::from_bits(1),
+                    1.0_f64,
+                    f64::NAN,
+                ] {
+                    let given = (
+                        core::hint::black_box(default_value),
+                        core::hint::black_box(minimum),
+                        core::hint::black_box(maximum),
+                    );
+                    let accepted =
+                        ParamSpec::new("p", "p", given.0, given.1, given.2).map(|param| {
+                            edges.map(|value| param.accepts(core::hint::black_box(value)))
+                        });
+                    answers.push((checked(given.0, given.1, given.2), accepted));
+                }
+            }
+        }
+        answers
+    });
+    alike_under_every_host_mode("the values of a box type", || {
+        let mut answers = Vec::new();
+        // Every pair of edges for the box type of two parameters, every edge for each of one.
+        let pairs = edges
+            .iter()
+            .flat_map(|&first| edges.iter().map(move |&second| (&TWO, vec![first, second])));
+        let singles = [&TINY, &FAR]
+            .into_iter()
+            .flat_map(|spec| edges.iter().map(move |&value| (spec, vec![value])));
+        for (spec, given) in pairs.chain(singles) {
+            let values: Vec<Binary64> = given
+                .into_iter()
+                .map(|value| Binary64::new(core::hint::black_box(value)))
+                .collect();
+            let blocks: Vec<[Binary64; 64]> = values.iter().map(|&value| [value; 64]).collect();
+            answers.push((
+                ParamValues::of(spec, &values).map(|values| bits(&values)),
+                DrivenValues::of(spec, blocks).map(|driven| {
+                    driven
+                        .blocks
+                        .iter()
+                        .flatten()
+                        .map(|value| value.raw().to_bits())
+                        .collect::<Vec<u64>>()
+                }),
+            ));
+        }
+        answers
+    });
+}
+
 /// Each refusal's one text, whole: what `param!` fails to compile with and what the error
 /// displays after the parameter's name.
 #[test]
