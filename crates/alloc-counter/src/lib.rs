@@ -185,6 +185,30 @@ fn bytes_counted_by<R>(
     Ok((result, kept))
 }
 
+/// Runs `action` and returns its result with the bytes it asked the heap for on the current
+/// thread.
+///
+/// The bytes are the size of every allocation and the new size of every reallocation,
+/// whatever the action released, so that an action reserving much and releasing it before it
+/// ends is seen.
+///
+/// Before the action, a probe allocation checks that the operations are counted at all.
+///
+/// # Errors
+///
+/// Returns [`NotCounting`] when the probe was not counted: [`CountingAllocator`] is not
+/// the global allocator, and a count of zero would pass vacuously. The action has run.
+pub fn heap_reserved_during<R>(action: impl FnOnce() -> R) -> Result<(R, usize), NotCounting> {
+    let before = current();
+    drop(black_box(Box::new(0_u8)));
+    let probed = current();
+    let (reserved, _) = bytes();
+    let result = action();
+    let (now_reserved, _) = bytes();
+    require_counted(probed.saturating_sub(before))?;
+    Ok((result, now_reserved.saturating_sub(reserved)))
+}
+
 #[cfg(test)]
 #[path = "lib_tests.rs"]
 mod tests;

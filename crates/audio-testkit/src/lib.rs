@@ -50,7 +50,7 @@ pub mod measure;
 pub mod runner;
 
 pub use alloc_counter::{
-    CountingAllocator, NotCounting, heap_bytes_during, heap_operations_during,
+    CountingAllocator, NotCounting, heap_bytes_during, heap_operations_during, heap_reserved_during,
 };
 pub use audio_battery::matrix;
 pub use driven::check_driven_laws;

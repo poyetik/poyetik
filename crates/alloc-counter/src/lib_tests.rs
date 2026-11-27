@@ -7,7 +7,7 @@ use std::sync::{Barrier, BarrierWaitResult};
 
 use super::{
     CountingAllocator, NotCounting, bytes_counted_by, heap_bytes_during, heap_operations_during,
-    operations_counted_by, require_counted,
+    heap_reserved_during, operations_counted_by, require_counted,
 };
 
 /// The test binary counts heap operations with the allocator under test.
@@ -80,6 +80,44 @@ fn counts_the_bytes_an_action_leaves_reserved() {
     });
     assert_eq!(net, 40, "56 reserved, 16 released");
     assert_eq!(*larger, [3; 56], "the larger result");
+}
+
+/// The bytes `action` asked for, which the installed counter always measures.
+fn asked<R>(action: impl FnOnce() -> R) -> (R, usize) {
+    heap_reserved_during(action).expect("the counter is installed")
+}
+
+#[test]
+fn counts_the_bytes_an_action_asks_for_releases_aside() {
+    let ((), reserved) = asked(|| drop(black_box(Vec::<u8>::with_capacity(1_000))));
+    assert_eq!(reserved, 1_000, "an allocation released before the end");
+    let (held, allocated) = asked(|| Box::new([7_u8; 24]));
+    assert_eq!(
+        (*held, allocated),
+        ([7; 24], 24),
+        "an allocation the result holds"
+    );
+    let ((), zeroed) = asked(|| drop(black_box(vec![0_u8; 40])));
+    assert_eq!(zeroed, 40, "alloc_zeroed");
+    let mut grown = Vec::<u8>::with_capacity(3);
+    grown.push(1);
+    let ((), resized) = asked(|| {
+        grown.reserve_exact(97);
+        let _: &Vec<u8> = black_box(&grown);
+    });
+    assert_eq!(
+        (grown.capacity(), resized),
+        (98, 98),
+        "a reallocation asks for its new size"
+    );
+    let freed = Box::new([1_u8; 16]);
+    let ((), released) = asked(|| drop(black_box(freed)));
+    assert_eq!(released, 0, "a release asks for nothing");
+    assert_eq!(
+        heap_reserved_during(|| 6_i32 * 7_i32),
+        Ok((42_i32, 0_usize)),
+        "returns the result, and the probe is not counted"
+    );
 }
 
 #[test]
