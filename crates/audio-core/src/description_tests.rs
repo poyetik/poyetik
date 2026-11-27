@@ -977,7 +977,8 @@ fn accepts_exactly_what_a_built_in_box_type_may_declare() {
         }
     }
     // The control: how many of the 16^3 combinations each verdict takes, as an independent
-    // model of the rule counts them (decided from the bits, in Python's binary64).
+    // model of the rule counted them (decided from the bits, in binary64), written apart in
+    // another language, which the tree does not keep: fixed by review.
     assert_eq!(
         verdicts,
         [283, 1_392, 16, 437, 560, 1_408],

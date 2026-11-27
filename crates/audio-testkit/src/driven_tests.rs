@@ -1,6 +1,7 @@
 //! Tests of the laws of a driven box: each must refuse a box whose bodies differ.
 
 use core::hint::black_box;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use audio_battery::{BLOCKS, splitmix64};
 use audio_core::DrivenValues;
@@ -357,6 +358,79 @@ impl<S: Sample, const N: usize, const CHEAT: u8> Dispatch<S, N> for Held<CHEAT> 
     }
 }
 
+/// What a [`Counted`] counts, per precision, block and rate.
+const COUNTED: usize = 4;
+
+/// Its counts: per precision (binary64, binary32), engine block (1 frame, 64), rate (each of
+/// the matrix, then any other) and what (created, given values, given blocks of values,
+/// rendered by the steady body), in that order.
+static COUNTS: [AtomicUsize; 2 * 2 * 9 * COUNTED] =
+    [const { AtomicUsize::new(0) }; 2 * 2 * 9 * COUNTED];
+
+/// A [`Held`] probe that counts what is done with it, in [`COUNTS`].
+#[derive(Debug)]
+struct Counted {
+    /// The probe.
+    held: Held<RIGHT>,
+    /// Where its counts begin.
+    first: usize,
+}
+
+impl Counted {
+    /// Counts one more of `what` at its place.
+    fn count(&self, what: usize) {
+        if let Some(count) = COUNTS.get(self.first.saturating_add(what)) {
+            let _: usize = count.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
+impl<S: Sample, const N: usize> Object<S, N> for Counted {
+    fn process(&mut self, inputs: &[Block<S, N>], outputs: &mut [Block<S, N>]) {
+        self.count(3);
+        self.held.process(inputs, outputs);
+    }
+}
+
+impl<S: Sample, const N: usize> BoxInstance<S, N> for Counted {
+    fn receive(&mut self, values: &ParamValues) -> bool {
+        self.count(1);
+        BoxInstance::<S, N>::receive(&mut self.held, values)
+    }
+
+    fn run_driven(
+        &mut self,
+        inputs: &[Block<S, N>],
+        outputs: &mut [Block<S, N>],
+        values: &DrivenValues<N>,
+    ) -> bool {
+        self.count(2);
+        self.held.run_driven(inputs, outputs, values)
+    }
+}
+
+impl<S: Sample, const N: usize> Dispatch<S, N> for Counted {
+    fn create(rate: SampleRate, values: &ParamValues) -> Option<Self> {
+        let precision = usize::from(size_of::<S>() == 4);
+        let block = usize::from(N != 1);
+        let hz = audio_battery::matrix::SAMPLE_RATES
+            .iter()
+            .position(|&hz| hz == rate.hz())
+            .unwrap_or(8);
+        let counted = Self {
+            held: <Held<RIGHT> as Dispatch<S, N>>::create(rate, values)?,
+            first: precision
+                .wrapping_mul(2)
+                .wrapping_add(block)
+                .wrapping_mul(9)
+                .wrapping_add(hz)
+                .wrapping_mul(COUNTED),
+        };
+        counted.count(0);
+        Some(counted)
+    }
+}
+
 /// The spec of the box type `T`, with the outlets `outlets`, for the rest of the test process.
 fn spec<T: Create<K>, const K: usize>(outlets: &'static [PortSpec]) -> &'static ObjectSpec {
     Box::leak(Box::new(ObjectSpec::new::<T, K>(
@@ -401,6 +475,63 @@ fn accepts_a_box_whose_bodies_agree() {
     assert_eq!(laws::<RIGHT>(), Ok(()), "every frame");
     assert_eq!(coarse_laws::<RIGHT>(), Ok(()), "every 16 frames");
     assert_eq!(factory_laws::<RIGHT>(), Ok(()), "through its factory");
+}
+
+/// The control of the laws: every run, held set and instance they create, at every rate of
+/// the matrix, in both precisions, on both inputs, counted by a probe, against counts made
+/// from the laws' documentation alone. Passed before it, and refused by it: a law reading
+/// two rates only, checking how an instance is created for one held set only, or changing the
+/// values once per block in its first two steps only.
+#[test]
+fn renders_every_run_at_every_rate_in_both_precisions() {
+    assert_eq!(
+        check_driven_laws::<Counted, Counted, Counted, Counted, 1>(spec::<Probe<RIGHT>, 2>(&[OUT])),
+        Ok(()),
+        "a box whose bodies agree"
+    );
+    // The motions: 6 parameter sets held, then the ends, a draw, 8 steps (64 frames a block
+    // over 8 blocks), the zeros and each of the 2 parameters alone.
+    let motions = 6 + 2 + 8 + 1 + 2;
+    let runs = motions * 5;
+    let inputs = 2;
+    // The steady blocks of the 5 patterns of a run, 0, 4, 4, 4 and 6, of which 3 kept, given
+    // no values; the others driven, 8, 4, 4, 4 and 2.
+    let (steady, kept, driven) = (18, 3, 22);
+    // The reference renders each run frame by frame, given values before each of its 512.
+    let reference = [runs, runs * 512, 0, runs * 512].map(|count| count * inputs);
+    // As the engine renders it: each run, then each held set created and given, both
+    // instances rendering 8 blocks by the steady body.
+    let engine = [
+        runs + 6 * 2,
+        motions * (steady - kept) + 6,
+        motions * driven,
+        motions * steady + 6 * 2 * 8,
+    ]
+    .map(|count| count * inputs);
+    let read = |first: usize| -> Vec<usize> {
+        COUNTS[first * COUNTED..(first + 1) * COUNTED]
+            .iter()
+            .map(|count| count.load(Ordering::Relaxed))
+            .collect()
+    };
+    for (precision, bits) in [(0, 64_u32), (1, 32)] {
+        for hz in 0..9 {
+            let (expected, name) = if hz < 8 {
+                (
+                    [reference.to_vec(), engine.to_vec()],
+                    audio_battery::matrix::SAMPLE_RATES[hz].to_string(),
+                )
+            } else {
+                ([vec![0; 4], vec![0; 4]], "another rate".to_owned())
+            };
+            assert_eq!(
+                [0, 1].map(|block| read((precision * 2 + block) * 9 + hz)),
+                expected,
+                "binary{bits} at {name}: by the reference, then as the engine renders it, \
+                 created, given values, given blocks of values, rendered by the steady body"
+            );
+        }
+    }
 }
 
 /// What the laws say of a box whose first broken one gives `problem`: in `precision` bits, at
@@ -452,7 +583,8 @@ const RUNS: &str = "[2, 3, 4, 6]";
 const SECOND: &str = "block 0, outlet 0, frame 1";
 
 /// The samples, places and parameters of these tests are those of a model of the probe, of the
-/// values and of the inputs written apart, in another language.
+/// values and of the inputs written apart, in another language, which the tree does not keep:
+/// they are fixed by review.
 #[test]
 fn refuses_a_box_whose_bodies_differ() {
     const ONE_FRAME_OLD: &str = "0.0 (0x0) for 0.125 (0x3fc0000000000000)";
@@ -932,12 +1064,15 @@ fn moves_each_parameter_as_its_motion_says() {
         [100.0_f64.to_bits(); 2],
         "the others at their default"
     );
-    assert!(
-        alone[0][1] != alone[1][1]
-            && alone
-                .iter()
-                .all(|[_, gain]| f64::from_bits(*gain) < 1.0_f64),
-        "one parameter drawn at each frame, within its range: {alone:?}"
+    // Over the gain's range, 0 to 1, a draw is its number's 53 high bits over 2^53, exactly.
+    let mut state = 0_u64;
+    let drawn: Vec<u64> = (0_u8..2)
+        .map(|_| (whole(splitmix64(&mut state) >> 11_u32) / TWO_TO_53).to_bits())
+        .collect();
+    assert_eq!(
+        alone.iter().map(|[_, gain]| *gain).collect::<Vec<_>>(),
+        drawn,
+        "one parameter drawn at each frame, from the first number of the run's draws"
     );
     let held = Run::new::<1>(
         spec,
