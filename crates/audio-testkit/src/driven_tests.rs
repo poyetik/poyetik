@@ -718,7 +718,7 @@ fn refuses_a_box_whose_bodies_differ_on_values_drawn_or_held() {
 
 #[test]
 fn refuses_a_box_wrong_in_one_dimension_of_the_runs_only() {
-    const HEAP: &str = "uses the heap (8 heap operations)";
+    const HEAP: &str = "uses the heap while processing (8 heap operations)";
     let special = "special inputs";
     let start = "block 1, outlet 0, frame 0";
     let defaults = "[100.0, 0.5]";
@@ -927,7 +927,7 @@ fn refuses_a_box_wrong_on_some_rates_inputs_or_precisions_only() {
             laws::<SUBNORMAL>(),
             refused(
                 "parameter set 0 held",
-                "a sample is not finite, or is subnormal, 1.1125369292536007e-308 \
+                "a sample is subnormal, 1.1125369292536007e-308 \
                  (0x8000000000000) at block 0, outlet 0, frame 0, with parameters [0.0, 0.0]",
             ),
         ),
@@ -1153,7 +1153,7 @@ fn refuses_what_is_not_finite_and_the_heap() {
         laws::<INFINITE>(),
         refused(
             "parameter set 0 held",
-            "a sample is not finite, or is subnormal, inf (0x7ff0000000000000) at block 0, \
+            "a sample is not finite, inf (0x7ff0000000000000) at block 0, \
              outlet 0, frame 0, with parameters [0.0, 0.0]"
         ),
         "an infinity in both bodies"
@@ -1161,7 +1161,10 @@ fn refuses_what_is_not_finite_and_the_heap() {
     // An allocation and a release in each of the 8 blocks.
     assert_eq!(
         laws::<ALLOCATES>(),
-        refused("parameter set 0 held", "uses the heap (16 heap operations)"),
+        refused(
+            "parameter set 0 held",
+            "uses the heap while processing (16 heap operations)",
+        ),
         "an allocation"
     );
     assert_eq!(laws::<ALLOCATES_OFFLINE>(), Ok(()), "offline-only");

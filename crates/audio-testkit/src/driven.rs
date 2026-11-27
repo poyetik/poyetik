@@ -9,12 +9,12 @@ use core::fmt;
 use audio_battery::{BLOCKS, param_sets, run_blocks, special_input, splitmix64};
 use audio_core::host::{ParamBounds as _, Raw};
 use audio_core::{
-    BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, BoxMode, Dispatch, DrivenValues,
-    ObjectSpec, ParamSpec, ParamValues, Precision, Sample, SampleRate,
+    BLOCK_SIZE, Binary32, Binary64, Block, BoxInstance, Dispatch, DrivenValues, ObjectSpec,
+    ParamSpec, ParamValues, Precision, Sample, SampleRate,
 };
 
 use crate::heap_operations_during;
-use crate::laws::{LawSample, entry, shown, unbuilt};
+use crate::laws::{LawSample, Unlawful, check_heap, entry, shown, unbuilt, unlawful};
 use crate::matrix::{PRECISIONS, sample_rates};
 
 /// How a block of a run is rendered as the engine renders it.
@@ -297,26 +297,20 @@ impl fmt::Display for Place {
     }
 }
 
-/// The first sample `refused` refuses of `rendered` and `expected`, two runs of a box of
-/// `outlets` outlets, with its place.
+/// The first sample of `rendered` whose bits are not those of `expected`, two runs of a box
+/// of `outlets` outlets, with its place.
 fn first<S: LawSample>(
     rendered: &[Block<S>],
     expected: &[Block<S>],
     outlets: usize,
-    refused: impl Fn(S, S) -> bool,
 ) -> Option<(Place, S, S)> {
     rendered
         .iter()
         .flatten()
         .zip(expected.iter().flatten())
         .enumerate()
-        .find(|&(_, (&given, &wanted))| refused(given, wanted))
+        .find(|&(_, (given, wanted))| given.bits() != wanted.bits())
         .map(|(index, (&given, &wanted))| (Place::of(index, outlets), given, wanted))
-}
-
-/// Whether `given` and `wanted` differ in their bits.
-fn differ<S: LawSample>(given: S, wanted: S) -> bool {
-    given.bits() != wanted.bits()
 }
 
 /// `sample` as a law names it: its value and its bits.
@@ -489,7 +483,7 @@ fn check_run<S: LawSample, const R: usize>(
     let expected = reference(makers.reference, spec, rate, input, run)?;
     let (rendered, operations) = driven(makers.engine, spec, rate, input, run)?;
     let outlets = spec.outlets().len();
-    if let Some((place, given, wanted)) = first(&rendered, &expected, outlets, differ) {
+    if let Some((place, given, wanted)) = first(&rendered, &expected, outlets) {
         let wanted = named(wanted);
         let values = run.values_at::<R>(place);
         let left = given.bits() == entry::<S>().bits();
@@ -506,18 +500,19 @@ fn check_run<S: LawSample, const R: usize>(
             )
         });
     }
-    let wrong = |sample: S, _| !sample.finite() || sample.subnormal();
-    if let Some((place, sample, _)) = first(&rendered, &expected, outlets, wrong) {
+    if let Some((index, sample, cause)) = unlawful(&rendered) {
+        let place = Place::of(index, outlets);
+        let what = match cause {
+            Unlawful::NotFinite => "not finite",
+            Unlawful::Subnormal => "subnormal",
+        };
         return Err(format!(
-            "a sample is not finite, or is subnormal, {} at {place}, with parameters {:?}",
+            "a sample is {what}, {} at {place}, with parameters {:?}",
             named(sample),
             run.values_at::<R>(place)
         ));
     }
-    if operations > 0 && spec.mode() == BoxMode::LiveCapable {
-        return Err(format!("uses the heap ({operations} heap operations)"));
-    }
-    Ok(())
+    check_heap(operations, spec.mode())
 }
 
 /// Checks that an instance created with `values` renders as one created with the defaults,
@@ -545,18 +540,15 @@ fn check_created<S: LawSample>(
         })
     };
     let (created, given) = (render(&mut created)?, render(&mut given)?);
-    first(&created, &given, spec.outlets().len(), differ).map_or(
-        Ok(()),
-        |(place, sample, wanted)| {
-            Err(format!(
-                "an instance created with its values gives other bits than one created with the \
+    first(&created, &given, spec.outlets().len()).map_or(Ok(()), |(place, sample, wanted)| {
+        Err(format!(
+            "an instance created with its values gives other bits than one created with the \
                  defaults, then given them, {} for {}, at {place}, with parameters {:?}",
-                named(sample),
-                named(wanted),
-                shown(values)
-            ))
-        },
-    )
+            named(sample),
+            named(wanted),
+            shown(values)
+        ))
+    })
 }
 
 /// Checks every run at every sample rate of the [`crate::matrix`], computing in `S`, then

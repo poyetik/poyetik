@@ -278,31 +278,65 @@ pub(crate) fn shown(params: &ParamValues) -> Vec<f64> {
     params.params().iter().map(|&value| value.raw()).collect()
 }
 
-/// Checks that rendered blocks are finite and hold no subnormal, and that rendering made
-/// no heap operation (no allocation, reallocation or release). A sample that is not finite
-/// is said as `non_finite`, which names every cause the render allows.
+/// Why the output laws refuse a rendered sample: one cause each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Unlawful {
+    /// It is NaN or infinite.
+    NotFinite,
+    /// It is subnormal in its precision.
+    Subnormal,
+}
+
+/// The first sample of `rendered`, in the order it is rendered, that is not finite, else the
+/// first that is subnormal, with its index and why: the one check of the samples the output
+/// laws make, those of every box ([`check_laws`]) and those of a driven box
+/// (`crate::check_driven_laws`).
+pub(crate) fn unlawful<S: LawSample>(rendered: &[Block<S>]) -> Option<(usize, S, Unlawful)> {
+    let samples = || rendered.iter().flatten().copied().enumerate();
+    samples()
+        .find(|&(_, sample)| !sample.finite())
+        .map(|(index, sample)| (index, sample, Unlawful::NotFinite))
+        .or_else(|| {
+            samples()
+                .find(|&(_, sample)| sample.subnormal())
+                .map(|(index, sample)| (index, sample, Unlawful::Subnormal))
+        })
+}
+
+/// Checks that a box type of mode `mode` made no heap operation (no allocation,
+/// reallocation or release) while processing, `operations` counted: the one check of the
+/// heap the laws make, of every box and of a driven box. The real-time rules hold
+/// live-capable boxes only: an offline-only one may allocate while processing, and is held
+/// to every other law (decision 20).
+pub(crate) fn check_heap(operations: usize, mode: BoxMode) -> Result<(), String> {
+    if operations > 0 && mode == BoxMode::LiveCapable {
+        Err(format!(
+            "uses the heap while processing ({operations} heap operations)"
+        ))
+    } else {
+        Ok(())
+    }
+}
+
+/// Checks that rendered blocks are finite and hold no subnormal ([`unlawful`]), and that
+/// rendering made no heap operation ([`check_heap`]). A sample that is not finite is said as
+/// `non_finite`, which names every cause the render allows.
 fn check_rendered<S: LawSample>(
     rendered: &[Block<S>],
     operations: usize,
     params: &ParamValues,
     non_finite: &str,
 ) -> Result<(), String> {
-    let live_capable = params.spec().mode() == BoxMode::LiveCapable;
-    let params = shown(params);
-    if rendered.iter().flatten().any(|sample| !sample.finite()) {
-        return Err(format!("{non_finite} with parameters {params:?}"));
+    match unlawful(rendered) {
+        Some((_, _, Unlawful::NotFinite)) => {
+            Err(format!("{non_finite} with parameters {:?}", shown(params)))
+        }
+        Some((_, _, Unlawful::Subnormal)) => Err(format!(
+            "subnormal output with parameters {:?}",
+            shown(params)
+        )),
+        None => check_heap(operations, params.spec().mode()),
     }
-    if rendered.iter().flatten().any(|sample| sample.subnormal()) {
-        return Err(format!("subnormal output with parameters {params:?}"));
-    }
-    // The real-time rules hold live-capable boxes only: an offline-only one may allocate
-    // while processing, and is held to every other law (decision 20).
-    if operations > 0 && live_capable {
-        return Err(format!(
-            "uses the heap while processing ({operations} heap operations)"
-        ));
-    }
-    Ok(())
 }
 
 /// What the second render of [`check_input`] and the long run ([`check_long_run`]) set
