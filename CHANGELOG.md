@@ -9,13 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `visual_gpu::bench::TimedGpu`, the GPU `visual_gpu::bench::measure` measures, sealed (only `GpuSquare` and the crate's tests implement it) (whether it has a clock, its name, its timed renders and encodings, the images it measures into), which `GpuSquare` implements: taken as a generic, the measured GPU's path compiles to the same calls; a test's GPU refuses a render, an encoding or an allocation at any call of a measurement, and the benchmark's `System` opens its GPU through a function a test replaces with one opening none.
+- `visual_gpu::bench::TimedGpu`, what `visual_gpu::bench::measure` asks of the GPU it measures: whether it has a clock, its name, its timed renders and encodings, and the images it measures them into. `GpuSquare` implements it; it is sealed, so that only this crate does.
 - A visual box law, history (`visual-testkit`): an instance renders each image of the matrix, in order, with the same bits as a fresh instance that renders it alone, so that a box whose bits change once it has rendered anything is caught at any index of the matrix, not only at its ends; the size change law's references are a fresh instance's images again.
 - `cargo xtask check` refuses, in the `[Unreleased]` section of `CHANGELOG.md`, a kind of change heading repeated or out of Keep a Changelog's order (Added, Changed, Deprecated, Removed, Fixed, Security), as every released section keeps them.
 
 ### Changed
 
 - **Breaking:** `visual_gpu::bench::CHECKED` and `visual_gpu::bench::SHOWN` are `ImageSize` constants (they were pairs of integers), and the square the GPU benchmark measures is built at compile time: a size or a square the library refuses fails the build instead of every measurement. To build them, `visual_core::ImageSize::new`, `visual_core::ImageRate::new` and `visual_core::Seconds::new` are `const fn`, accepting and refusing exactly as before, so that a size, a rate or a duration can be a constant checked at compile time.
+- **Breaking:** `visual_gpu::bench::measure` takes the GPU it measures as a generic `TimedGpu` (it took a `&GpuSquare`): a call passing a reference that reached `GpuSquare` only by deref coercion, a reference to a smart pointer holding one, no longer compiles: dereference it to a `GpuSquare` first.
 
 ### Fixed
 

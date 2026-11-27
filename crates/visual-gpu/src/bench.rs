@@ -316,8 +316,8 @@ const MEASURED_SQUARE: Square = {
 ///
 /// [`GpuSquare`] is the one measured; a test's GPU is the seam through which it refuses a
 /// render, an encoding or an allocation at any call. Every function measuring takes it as a
-/// generic, never a trait object: dispatched statically, the measured GPU's path compiles to
-/// the same calls as `GpuSquare`'s own methods, no indirection added to what is timed.
+/// generic, never a trait object. What is timed is the GPU's own work, between the timestamps
+/// around each pass, which no dispatch on the CPU changes.
 ///
 /// Sealed: only this crate implements it (`GpuSquare`, and its tests' GPU), so that a
 /// [`Times`], built only here, holds a real GPU's times and nothing another crate made up.
