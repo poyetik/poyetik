@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-11-28
+
 ### Added
 
 - Parallelism is kept possible on every target (`spec/engine-design.md`, decision 16): no decision, format or interface may assume a single thread, and later steps keep the plan's tasks and parts fixed by the plan alone, merges in a fixed order, the libraries free of global or thread-local state, box instances `Send`, one floating-point mode on every thread, no variation from a thread count in any arithmetic mode, no live render quantum split across threads in the browser, and a module built with WebAssembly threads beside the one without (#12 steps 33, 34 and 40, #32 step 11).
