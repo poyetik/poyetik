@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Parallelism is kept possible on every target (`spec/engine-design.md`, decision 16): no decision, format or interface may assume a single thread, and later steps keep the plan's tasks and parts fixed by the plan alone, merges in a fixed order, the libraries free of global or thread-local state, box instances `Send`, one floating-point mode on every thread, no variation from a thread count in any arithmetic mode, no live render quantum split across threads in the browser, and a module built with WebAssembly threads beside the one without (#12 steps 33, 34 and 40, #32 step 11).
+- In-patch compilation is kept possible (`spec/engine-design.md`, decision 25): a box type loaded at run time may have its description derived from a subpatch, a module instance may hold several box instances, a box's state is a record of its box type, state version and bytes, composed by inner box id, a module is compiled and its memory reserved off the audio thread, and a compiled subpatch gives the plan's bits in the strict mode, binding #12 steps 28, 30, 40 and 41.
 
 ## [0.13.0] - 2026-11-27
 
