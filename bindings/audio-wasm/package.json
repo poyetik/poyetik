@@ -38,7 +38,7 @@
     "@playwright/test": "catalog:",
     "@stryker-mutator/core": "catalog:",
     "@stryker-mutator/vitest-runner": "catalog:",
-    "@types/audioworklet": "0.0.100",
+    "@types/audioworklet": "0.0.102",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "eslint": "catalog:",
