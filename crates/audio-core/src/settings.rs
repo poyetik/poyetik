@@ -244,6 +244,12 @@ impl HostSettings {
         outputs: OutputChannels,
         inputs: InputChannels,
     ) -> Self {
+        Self::made(rate, block, outputs, inputs)
+    }
+
+    /// [`HostSettings::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made(rate: u32, block: u32, outputs: OutputChannels, inputs: InputChannels) -> Self {
         Self {
             rate,
             block,

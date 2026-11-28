@@ -386,6 +386,21 @@ impl LimiterSettings {
         release: Binary64,
         adaptivity: Binary64,
     ) -> Result<Self, LimiterError> {
+        Self::checked(ceiling, lookahead, release, adaptivity)
+    }
+
+    /// [`LimiterSettings::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`LimiterSettings::new`].
+    fn checked(
+        ceiling: Binary64,
+        lookahead: Binary64,
+        release: Binary64,
+        adaptivity: Binary64,
+    ) -> Result<Self, LimiterError> {
         Ok(Self {
             ceiling: Setting::Ceiling.checked(ceiling)?,
             lookahead: Setting::Lookahead.checked(lookahead)?,
@@ -573,6 +588,19 @@ impl<S: Sample> TruePeakLimiter<S> {
     /// [`LimiterSettings::within_maximum`]), and [`LimiterError::TooManyChannels`] for more
     /// than [`MAX_CHANNELS`] channels.
     pub fn new(
+        rate: SampleRate,
+        channels: u16,
+        maximum_lookahead: Binary64,
+        detector: Detector,
+        settings: LimiterSettings,
+        mode: LimiterMode,
+    ) -> Result<Self, LimiterError> {
+        Self::made(rate, channels, maximum_lookahead, detector, settings, mode)
+    }
+
+    /// [`TruePeakLimiter::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn made(
         rate: SampleRate,
         channels: u16,
         maximum_lookahead: Binary64,
@@ -963,6 +991,12 @@ struct Path {
 impl Path {
     /// A path for a maximum lookahead of `maximum` frames, not started.
     fn new(maximum: usize) -> Self {
+        Self::made(maximum)
+    }
+
+    /// [`Path::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn made(maximum: usize) -> Self {
         Self {
             lookahead: 0,
             queue: vec![(0, Binary64::ZERO); maximum.saturating_add(2)],

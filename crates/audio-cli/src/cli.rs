@@ -211,6 +211,12 @@ mod one_line {
     impl OneLine {
         /// `text` made safe to print as one line.
         pub(super) fn new(text: &str) -> Self {
+            Self::made(text)
+        }
+
+        /// [`OneLine::new`]'s body, a function of its own so that mutation testing reaches it:
+        /// cargo-mutants never mutates a function named `new`.
+        fn made(text: &str) -> Self {
             Self(audio_patch::safe_message(text))
         }
 

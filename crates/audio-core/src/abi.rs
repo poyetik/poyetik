@@ -38,6 +38,12 @@ impl ContractVersion {
     /// Version `major.minor`.
     #[must_use]
     pub const fn new(major: u16, minor: u16) -> Self {
+        Self::made(major, minor)
+    }
+
+    /// [`ContractVersion::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made(major: u16, minor: u16) -> Self {
         Self { major, minor }
     }
 
@@ -301,6 +307,16 @@ impl<S: Sample> BufferRun<S> {
     /// of [`BUFFER_ALIGNMENT`], [`RunError::Span`] unless `frames` is 1 to
     /// [`MAX_ENGINE_BLOCK`], [`RunError::OutsideMemory`] when the run ends beyond `memory`.
     pub fn new(offset: u32, frames: u32, buffers: u32, memory: u64) -> Result<Self, RunError> {
+        Self::checked(offset, frames, buffers, memory)
+    }
+
+    /// [`BufferRun::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`BufferRun::new`].
+    fn checked(offset: u32, frames: u32, buffers: u32, memory: u64) -> Result<Self, RunError> {
         if !offset.is_multiple_of(BUFFER_ALIGNMENT) {
             return Err(RunError::Misaligned { offset });
         }
@@ -423,6 +439,21 @@ impl<S: Sample> Runs<S> {
     /// a run ([`BufferRun::new`]), [`RunsError::Outputs`] when the outputs are not,
     /// [`RunsError::Overlap`] when the two share a byte.
     pub fn new(
+        description: &Description<'_>,
+        [inputs, outputs]: [u32; 2],
+        frames: u32,
+        memory: u64,
+    ) -> Result<Self, RunsError> {
+        Self::checked(description, [inputs, outputs], frames, memory)
+    }
+
+    /// [`Runs::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Runs::new`].
+    fn checked(
         description: &Description<'_>,
         [inputs, outputs]: [u32; 2],
         frames: u32,

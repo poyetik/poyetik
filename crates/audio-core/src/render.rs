@@ -142,6 +142,12 @@ impl<S: Sample, I: Dispatch<S, N>, D: Delivered<S>, const N: usize> Renderer<S, 
     /// ([`OutputStage::new`]: non-finite samples replaced, nothing limited, no latency).
     #[must_use]
     pub fn new(plan: Plan<S, I, N>) -> Self {
+        Self::made(plan)
+    }
+
+    /// [`Renderer::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn made(plan: Plan<S, I, N>) -> Self {
         let channels = plan.channels();
         Self::through(plan, OutputStage::new(channels))
     }

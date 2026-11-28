@@ -121,6 +121,16 @@ impl LimiterStage {
         detector: Detector,
         limiter: LimiterSettings,
     ) -> Self {
+        Self::made(maximum_lookahead, detector, limiter)
+    }
+
+    /// [`LimiterStage::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made(
+        maximum_lookahead: Binary64,
+        detector: Detector,
+        limiter: LimiterSettings,
+    ) -> Self {
         Self {
             maximum_lookahead,
             detector,
@@ -260,6 +270,12 @@ impl<const N: usize> Engine<N> {
         format: RenderFormat,
         output: Output,
     ) -> Result<Self, String> {
+        Self::made(patch, rate, format, output)
+    }
+
+    /// [`Engine::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn made(patch: &[u8], rate: u32, format: RenderFormat, output: Output) -> Result<Self, String> {
         let text = core::str::from_utf8(patch)
             .map_err(|error| alloc::format!("patch is not UTF-8: {error}"))?;
         let rate = SampleRate::new(rate).map_err(|error| error.to_string())?;

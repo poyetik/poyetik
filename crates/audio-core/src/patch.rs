@@ -97,6 +97,16 @@ impl Patch {
     /// the limits, [`CoreError::DuplicateNode`] when two boxes share an id, and
     /// [`CoreError::DuplicateConnection`] when a cable is listed twice.
     pub fn new(nodes: Vec<Node>, connections: Vec<Connection>) -> Result<Self, CoreError> {
+        Self::checked(nodes, connections)
+    }
+
+    /// [`Patch::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Patch::new`].
+    fn checked(nodes: Vec<Node>, connections: Vec<Connection>) -> Result<Self, CoreError> {
         if nodes.len() > Self::MAX_NODES {
             return Err(CoreError::TooManyNodes(nodes.len()));
         }
