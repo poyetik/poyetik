@@ -1273,6 +1273,10 @@
         {
           "title": "cargo xtask check --native also runs, for the crates its changes reach, the two checks a pull request's CI can fail on after a green --native: the doc tests with the error code of each compile_fail checked (the existing doc-tests step, run as CI runs it), and the coverage gate of each Rust crate reached (100% lines, functions and branches), both selected by the same change reach as its other parts. Done when the step's tests show --native selecting them for a change to one crate and skipping them otherwise, and a planted compile_fail with a wrong code and a planted uncovered function each fail --native; the cost, measured on audio-core, is written in the step's report. Left to CI, written down with the reason where --native is described: Miri (slow, nightly), the x86_64 and Linux-only steps (the Mac is arm64 macOS), the wasm builds and browser tests (their runners and browsers are CI's) and the mutation shards (heavy, sharded across CI runners); the pull request's CI stays their judge",
           "done": false
+        },
+        {
+          "title": "The changelog's version headings held line by line: every heading of a version, ## [X.Y.Z] - YYYY-MM-DD, stands on a line of its own, so that one glued to the end of an entry (as a scripted edit or a rebase can leave it, which the format gate and the unreleased-shape gate both read as entry text) is refused, wherever the text ## [ appears inside a line of CHANGELOG.md; the versions in strictly decreasing order and one heading per version, a version heading repeated refused; each with a fixture refused through the step that runs it, the glued form among them",
+          "done": false
         }
       ]
     },
