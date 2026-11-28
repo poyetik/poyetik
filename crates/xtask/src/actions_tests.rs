@@ -1866,6 +1866,22 @@ fn package_rules() -> Vec<Rule> {
     ]
 }
 
+/// The rule of the delegating constructor gate: a `new` building its value.
+fn constructor_rules() -> Vec<Rule> {
+    vec![(
+        "delegating_new_gate",
+        Action::DelegatingNewGate,
+        "step: crates/a/src/a.rs:2: a `new` holding more than one call to a function of another name, its parameters passed on: cargo-mutants never mutates a function named `new`, so move its body into one it mutates",
+        |fake| {
+            put(
+                fake,
+                "crates/a/src/a.rs",
+                "impl A {\n    fn new(a: u8) -> Self {\n        Self(a)\n    }\n}\n",
+            );
+        },
+    )]
+}
+
 /// The rules of the gates over typed lists, registers, git, kinds of files and wordings.
 fn register_and_list_rules() -> Vec<Rule> {
     vec![
@@ -2093,6 +2109,7 @@ fn rules() -> Vec<Rule> {
         package_rules(),
         test_code_rules(),
         register_and_list_rules(),
+        constructor_rules(),
         hint_rules(),
         changelog_and_machine_rules(),
     ]
@@ -2159,6 +2176,7 @@ const fn gates_of(action: &Action) -> &'static [&'static str] {
         Action::RetiredPatternsGate => &["retired_patterns_gate"],
         Action::RunnableHintsGate => &["runnable_hints_gate"],
         Action::HermeticGitGate => &["hermetic_git_gate"],
+        Action::DelegatingNewGate => &["delegating_new_gate"],
         Action::RegisterNamesGate => &["register_names_gate"],
         Action::LoadedFilesGate => &["loaded_files_gate", "validated_shaders_gate"],
         Action::BypassGate => &["bypass_gate"],
@@ -2494,7 +2512,7 @@ fn stops_each_gate_at_whichever_read_fails() {
     }
     assert_eq!(unnamed, Vec::<String>::new(), "each failure named");
     // Exact, so that a gate whose calls are no longer all broken, or a new call, shows here.
-    assert_eq!(calls, 1327, "every way each gate's calls fail");
+    assert_eq!(calls, 1372, "every way each gate's calls fail");
 }
 
 #[test]

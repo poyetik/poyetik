@@ -54,6 +54,7 @@ const DEFAULT_PIPELINE: &[&str] = &[
     "retired patterns gate",
     "runnable hints gate",
     "hermetic git gate",
+    "delegating new gate",
     "register names gate",
     "version gate",
     "history gate",
@@ -243,6 +244,7 @@ const DEFAULT_CHECK_NAMES: &[&str] = &[
     "No pattern a fix retired, in the code it was retired from",
     "Every hint a message gives names a command a user can run",
     "Every place that starts a process is listed; every copy of git's variables is xtask's",
+    "Every new of a crate is one call to a function mutation testing reaches",
     "Every reason of the registers of proof bypasses and equivalent mutants names what exists",
     "One version everywhere, changelog well formed, released sections as on main",
     "Commit messages, and a changelog entry for each change of behavior",
@@ -753,16 +755,18 @@ fn list_counts_and_kinds_operations() -> usize {
     read.checked_add(3).expect("a small count")
 }
 
-/// The operations of the retired patterns, runnable hints, list counts, source kinds and
-/// hermetic git gates in a run of [`passing`]: the last lists and reads the code files as the
-/// hints gate does, the READMEs apart.
+/// The operations of the retired patterns, runnable hints, list counts, source kinds,
+/// hermetic git and delegating constructor gates in a run of [`passing`]: the last two list and
+/// read the code files as the hints gate does, the READMEs apart.
 fn text_gate_operations() -> usize {
+    let code_files = hint_gate_operations()
+        .checked_sub(readme_reads().saturating_add(1))
+        .expect("more reads than READMEs");
     [
         retired_gate_operations(),
         hint_gate_operations(),
-        hint_gate_operations()
-            .checked_sub(readme_reads().saturating_add(1))
-            .expect("more reads than READMEs"),
+        code_files,
+        code_files,
         // The register names gate: the tracked files and the code files listed, the code
         // files read as the hermetic git gate reads them, and the two registers.
         hint_gate_operations()
@@ -1042,9 +1046,10 @@ fn runs_every_step_and_reports_success() {
     // And the refusal of a mutant left in place.
     // And the retired patterns and runnable hints gates.
     // And the visual corpus's mutation testing: its report emptied, then its run.
-    // And the source kinds, list counts, hermetic git and register names gates.
+    // And the source kinds, list counts, hermetic git, delegating constructor and register names
+    // gates.
     let checks =
-        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2 + 4;
+        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2 + 5;
     assert!(
         text.starts_with(&format!("▶ [1/{checks}] Tools and platform\n")),
         "numbered progress: {text}"
@@ -1378,6 +1383,7 @@ const fn carries_its_problems_alone(action: &Action) -> bool {
         | Action::RetiredPatternsGate
         | Action::RunnableHintsGate
         | Action::HermeticGitGate
+        | Action::DelegatingNewGate
         | Action::RegisterNamesGate
         | Action::LoadedFilesGate => true,
         Action::BypassGate
@@ -1464,6 +1470,38 @@ fn hermetic_git_refusals() -> Vec<String> {
     ]
 }
 
+/// The summary of a refusal of the loaded files gate: a build that loads a file outside its
+/// crate's sources.
+fn loaded_files_refusals() -> Vec<String> {
+    vec![
+        crate::loaded_files_gate(
+            &[crate::Loaded {
+                krate: crate::RUST_CRATES[0],
+                target: "audio_core".to_owned(),
+                configuration: None,
+                of_tests: false,
+                files: vec!["spec/x.json".to_owned()],
+            }],
+            &[],
+        )
+        .expect_err("refused")
+        .summary,
+    ]
+}
+
+/// The summary of a refusal of the delegating constructor gate: a `new` building its value.
+fn delegating_new_refusals() -> Vec<String> {
+    let built = [(
+        "crates/a/src/lib.rs".to_owned(),
+        "impl A {\n    fn new(a: u8) -> Self {\n        Self(a)\n    }\n}\n".to_owned(),
+    )];
+    vec![
+        crate::constructors::delegating_new_gate(&built)
+            .expect_err("a new holding more")
+            .summary,
+    ]
+}
+
 /// The summary of a refusal of the register names gate: a reason citing a file gone.
 fn register_names_refusals() -> Vec<String> {
     let register = [("r.txt", "a.ts: x -- see gone/b.ts\n")];
@@ -1532,19 +1570,7 @@ fn names_each_failed_step_once() {
     let (real, _) = fixture_metadata();
     let shared = r#"{"workspace_root":"/r","packages":[{"name":"x","dependencies":[{"name":"audio-core","kind":"dev","path":"/r/crates/audio-core"}]}]}"#;
     let alone = [
-        (
-            Action::LoadedFilesGate,
-            vec![refused(crate::loaded_files_gate(
-                &[crate::Loaded {
-                    krate: crate::RUST_CRATES[0],
-                    target: "audio_core".to_owned(),
-                    configuration: None,
-                    of_tests: false,
-                    files: vec!["spec/x.json".to_owned()],
-                }],
-                &[],
-            ))],
-        ),
+        (Action::LoadedFilesGate, loaded_files_refusals()),
         (
             Action::TestCodeGate,
             vec![refused(test_code_gate(&rust(
@@ -1599,6 +1625,7 @@ fn names_each_failed_step_once() {
         (Action::RetiredPatternsGate, retired_refusals()),
         (Action::RunnableHintsGate, hint_refusals()),
         (Action::HermeticGitGate, hermetic_git_refusals()),
+        (Action::DelegatingNewGate, delegating_new_refusals()),
         (Action::RegisterNamesGate, register_names_refusals()),
     ];
     let steps = check_steps(Mode::Full { jobs: FAKE_JOBS });
@@ -2799,6 +2826,7 @@ fn runs_the_static_gates_of_the_full_check_alone() {
             "No pattern a fix retired, in the code it was retired from",
             "Every hint a message gives names a command a user can run",
             "Every place that starts a process is listed; every copy of git's variables is xtask's",
+            "Every new of a crate is one call to a function mutation testing reaches",
             "Every reason of the registers of proof bypasses and equivalent mutants names what exists",
             "One version everywhere, changelog well formed, released sections as on main",
             "Commit messages, and a changelog entry for each change of behavior",

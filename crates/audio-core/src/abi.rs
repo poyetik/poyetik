@@ -440,11 +440,11 @@ impl<S: Sample> Runs<S> {
     /// [`RunsError::Overlap`] when the two share a byte.
     pub fn new(
         description: &Description<'_>,
-        [inputs, outputs]: [u32; 2],
+        offsets: [u32; 2],
         frames: u32,
         memory: u64,
     ) -> Result<Self, RunsError> {
-        Self::checked(description, [inputs, outputs], frames, memory)
+        Self::checked(description, offsets, frames, memory)
     }
 
     /// [`Runs::new`]'s body, a function of its own so that mutation testing reaches it:

@@ -284,6 +284,14 @@ fn runnable_hints(runner: &mut dyn Runner) -> Result<(), Failure> {
     runnable_hints_gate(&read_all(runner, paths)?)
 }
 
+/// Reads the tracked code files ([`code_sources`]), then checks that every `fn new` of a
+/// crate's sources delegates to a function mutation testing reaches
+/// ([`delegating_new_gate`](crate::constructors::delegating_new_gate)).
+fn delegating_new(runner: &mut dyn Runner) -> Result<(), Failure> {
+    let paths = list_tracked(runner, &code_sources(), "the code files")?;
+    crate::constructors::delegating_new_gate(&read_all(runner, paths)?)
+}
+
 /// Reads the tracked code files ([`code_sources`]), then checks every place that starts a
 /// process and every copy of git's variables ([`hermetic_git_gate`]).
 fn hermetic_git(runner: &mut dyn Runner) -> Result<(), Failure> {
@@ -1283,6 +1291,7 @@ pub(crate) fn run_action(
         Action::RetiredPatternsGate => retired_patterns(runner),
         Action::RunnableHintsGate => runnable_hints(runner),
         Action::HermeticGitGate => hermetic_git(runner),
+        Action::DelegatingNewGate => delegating_new(runner),
         Action::RegisterNamesGate => register_names(runner),
         Action::Preflight(driver) => preflight(runner, *driver),
         Action::MutantLeftGate => mutant_left(runner),
