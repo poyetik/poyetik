@@ -369,13 +369,25 @@ Why the browser's plan is built in the worklet's own instance:
 
 **Decision.** Natively, the plan is scheduled on **several cores**, with **results identical whatever the thread count**. The core stays free of threads (`no_std`): it exposes the plan as tasks with fixed dependencies and a pure "run this task" operation; the host shell owns the threads and the synchronization. Every sum whose terms come from different tasks is computed after all of them, in its fixed order, so completion order never matters. The browser host runs single-threaded for now; the same tasks run in order there.
 
+Sub-decisions:
+
+- **Parallelism is kept possible on every target** (decided 2026-11-28). No decision, format or interface may assume a single thread: the browser runs its tasks in order today, and the same plan may later run on several threads (Workers sharing the worklet's memory where the page is cross-origin isolated), under this decision's law. Constraints on every later step:
+  - the plan's partition into tasks and into parts (decision 22) is a function of the plan alone, fixed when the plan is built, never of the thread count, the machine or timing, so that this decision's law, every case rendered with 1 to many threads identically, also covers the browser and a built patch;
+  - every sum whose terms come from different tasks or parts is computed after all of them, in its fixed order (above, and the reduction order of #12 step 7);
+  - the libraries hold no global or thread-local mutable state, only a shell does, and a shell's state is reached without a lock on the audio thread before any build with WebAssembly threads (#32 step 11);
+  - a box instance is `Send` (`Object` requires it), so that a task may run on any thread; a box type loaded at run time (#12 step 40) has its instance used by one thread at a time, its state movable (decision 24);
+  - every thread that runs engine code runs it in the same floating-point mode natively (`fpenv`): the default mode, in which the strict mode's bits never depend on a thread's flags (decision 11), or the one an arithmetic mode of decision 10 declares, set identically on every thread;
+  - a thread count adds no variation in any arithmetic mode: a mode's only variation is its own stated margin (decision 10's options), never the scheduling;
+  - on the browser's audio thread, live work is never split across threads within a render quantum, since the audio thread cannot wait: other threads help ahead of time only (decision 22, #12 step 34);
+  - a module built with WebAssembly threads is built beside the one without, so that a page that is not cross-origin isolated keeps working (decisions 15 and 18).
+
 **Why.** Large patches and workstation sessions need every core; determinism is the core promise.
 
 **Rejected.** Atomic accumulation into shared buses (the order of additions, so the bits, would depend on timing). Threads inside the core (it would no longer be portable).
 
 **Consequences.** Engine: a task graph in the plan. Hash: unchanged. Tests: every case rendered with 1 to many threads, identical; Miri and the counting allocator on the shell's scheduler.
 
-**Step.** #12 step 33. **Order:** 14.
+**Step.** #12 step 33 (the constraints above also bind #12 steps 34 and 40 and #32 step 11). **Order:** 14.
 
 ## 17. Hooks for what the engine does not own
 
