@@ -1,7 +1,7 @@
 {
   "version": 1,
   "title": "Poyetik",
-  "nextId": 46,
+  "nextId": 55,
   "cards": [
     {
       "id": 3,
@@ -1846,16 +1846,12 @@
     {
       "id": 38,
       "title": "Mastering-grade audio engine: the tools of the best mastering editors and plugins on the engine",
-      "description": "What a mastering tool needs beyond the engine's foundations, each an addition on #12's work, none undoing a decision. Two decisions come first, since later work depends on them.",
+      "description": "What a mastering tool needs beyond the engine's foundations, each an addition on #12's work, none undoing a decision. One decision comes first, since later work depends on it; subpatch fusion is decided on #54.",
       "column": "later",
       "milestone": "M1 Engine",
       "createdAt": "2026-11-15",
-      "updatedAt": "2026-11-19",
+      "updatedAt": "2026-11-28",
       "tasks": [
-        {
-          "title": "Decide subpatch fusion (a subpatch compiled into one box) for performance, so that a mastering chain built as a patch costs no more than dedicated boxes",
-          "done": false
-        },
         {
           "title": "Decide what to do about codecs and post-encode peak checks (AAC, MP3, Opus): excluded, through external processor boxes marked non-deterministic (#12 step 37), or a deterministic encoder of our own",
           "done": false
@@ -2159,6 +2155,45 @@
         {
           "title": "CLAUDE.md states the end of a block: the pull request's CI replaces the local default check, cargo xtask check --native runs before the final push, which then skips the pre-push check, the merge is a fast-forward and a release tag waits for the full run on main",
           "done": true
+        }
+      ]
+    },
+    {
+      "id": 54,
+      "title": "Compiled subpatches: in-patch compilation and the fused build, the same bits proven",
+      "description": "A subpatch, the whole patch (the root) included, compiled into one box, inside the patch and at export, for performance, with a swap invisible on every output: the same samples, messages, values and frames, with no dropout and no stall. In the strict mode, a compiled subpatch gives the bits of the same subpatch played by the plan. While compiled, its parameters, messages and MIDI stay live, and editing it puts it back in its plan form, never read-only. The engine keeps it possible (spec/engine-design.md, decision 25, \"In-patch compilation is kept possible\"); this card builds it on #12 steps 28, 30, 40 and 41 (serialized state, hot swap, the box contract's host, typed and smoothed parameters with events).",
+      "column": "later",
+      "milestone": "M1 Engine",
+      "createdAt": "2026-11-28",
+      "updatedAt": "2026-11-28",
+      "tasks": [
+        {
+          "title": "Decide subpatch fusion (a subpatch compiled into one box) for performance, so that a chain built as a patch, a mastering chain among them, costs no more than dedicated boxes: what is fused, how it is generated, and its cost against the plan measured on such a chain and at the root's scale (fusion across subpatches)",
+          "done": false
+        },
+        {
+          "title": "Compare the root compiled through the subpatch system against a dedicated whole-patch performance build, measured on the same patches: what a whole-patch compiler could do that per-subpatch compilation cannot (constants of fixed parameters folded, boxes specialized to their settings, dead paths removed, buffers and scheduling planned across the whole patch, a profile of decision 10 applied globally), the gain of each, and the cost of keeping the same live swap, state and editing rules. Measure too, natively, a compiled subpatch loaded as a WebAssembly module against the same subpatch compiled to native code directly (through Cranelift, or as Rust built in), at the same bits. Decide from the measurements whether the subpatch system suffices at the root or a separate performance mode is warranted",
+          "done": false
+        },
+        {
+          "title": "The laws of a compiled subpatch, each with the cheat it catches, for an inner subpatch and at the root (the whole patch): in the strict mode, the bits of the same subpatch played by the plan, over the whole test matrix; a swap from the plan form to the compiled form at a frame and back gives the plan form's bits throughout, so that no swap clicks; no swap drops audio: the audio thread's work at the swap frame is bounded, attaching only (no compilation, no allocation, no copy beyond the inner boxes' state records), and measured against the block's time budget, and a live render that swaps back and forth repeatedly under load reports no underrun; no swap shows on another output: messages and events none lost, none duplicated, their order and frames kept, the values read back identical, and, once the visual engine has patches, the same pixels and no dropped frame; parameters, messages and MIDI given to a compiled subpatch give the bits they give the plan form; under an arithmetic profile (decision 10), a difference within that profile's stated margin only",
+          "done": false
+        },
+        {
+          "title": "The compiled export: Rust generated from a frozen patch (its boxes' functions called in order), compiled with the usual optimizer and no reordering of floating-point operations, its renders held to the plan's by the conformance suite",
+          "done": false
+        },
+        {
+          "title": "The fused build: the externals and the compiled subpatches of a built patch linked into the patch's one module (from relocatable WebAssembly or source), called directly, sharing the engine's memory, the crossing's checks replaced by build-time laws or fused into each box's loop, at built-in bits and built-in cost",
+          "done": false
+        },
+        {
+          "title": "In-patch compilation of a subpatch, the whole patch (the root) included: an explicit and reversible call that compiles it into a box (compiled in the page by the project's own WebAssembly generator, natively in the background, or by the build service), prepared off the audio thread, then swapped live at a frame with its state, with no dropout; its parameters, messages and MIDI stay live while compiled",
+          "done": false
+        },
+        {
+          "title": "The editor: mark a subpatch, the whole patch (the root) included, for compilation, compile it, revert it to its plan form, and show its state: compiling, compiled, modified and to compile again; compilation runs off the interface's thread, and a law holds that no frame of the interface is delayed by it; editing a compiled subpatch puts it back in its plan form, never read-only",
+          "done": false
         }
       ]
     }
