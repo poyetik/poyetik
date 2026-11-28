@@ -45,6 +45,7 @@ mod test_code;
 mod test_order;
 mod unsafety;
 mod vocabulary;
+mod widened;
 mod workflow;
 mod workspace;
 

@@ -127,8 +127,8 @@ pub enum Action {
     /// ([`corpus_reached`](crate::corpus::corpus_reached)).
     CorpusMutants(Mode),
     /// Run cargo-mutants on the Rust lines changed since the merge base of `HEAD` with a
-    /// revision only, not widened (`cargo xtask mutants --changed <revision>`); nothing when
-    /// no Rust line changed.
+    /// revision and every function holding one, whole, not widened to their crates (`cargo
+    /// xtask mutants --changed <revision>`); nothing when no Rust line changed.
     RustMutantsOfChangedLines {
         /// The number of cargo-mutants jobs.
         jobs: NonZeroUsize,
@@ -1440,6 +1440,19 @@ pub fn changes_mutants_command(jobs: NonZeroUsize) -> Cmd {
 #[must_use]
 pub fn changes_list_command() -> Cmd {
     mutants_command(&["--workspace", "--in-diff", CHANGES_DIFF, "--list"])
+}
+
+/// The cargo-mutants command that lists, as JSON with the span of each one's function, every
+/// mutant of `files`, Rust files of the root's workspace, without testing them: what the
+/// changes are widened to the functions they touch from
+/// ([`widen`](crate::widened::widen)).
+#[must_use]
+pub(crate) fn functions_list_command(files: &[String]) -> Cmd {
+    let mut args = vec!["--workspace", "--list", "--json"];
+    for file in files {
+        args.extend(["--file", file.as_str()]);
+    }
+    mutants_command(&args)
 }
 
 /// The cargo-mutants command of [`Mode::Full`]: every mutant of the workspace in `jobs` jobs.

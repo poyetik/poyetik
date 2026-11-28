@@ -37,6 +37,9 @@ fn mutates_the_changes_since_the_merge_base_with_the_upstream() {
             "capture git ls-files -z --others --exclude-per-directory=.gitignore -- *.rs",
             "capture git diff --no-color --name-only -z --no-renames abc1230000000000000000000000000000000000",
             "capture git -c diff.suppressBlankEmpty=false diff --no-color --no-ext-diff --no-textconv --text --no-renames --unified=3 --inter-hunk-context=0 --diff-algorithm=myers --indent-heuristic --src-prefix=a/ --dst-prefix=b/ abc1230000000000000000000000000000000000 -- *.rs :(exclude)crates/visual-gpu/",
+            // The mutants of the file changed in part, listed with their functions' spans: the
+            // changes widened to the functions holding them.
+            "capture cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --workspace --list --json --file crates/a/src/b.rs -- -- --include-ignored",
             "write target/xtask/changes.diff",
             "cargo mutants --no-config --output=. --cap-lints=true --gitignore=true --cargo-arg=--locked --cargo-arg=--config=profile.test.debug=false --cargo-arg=--config=target.'cfg(target_os = \"linux\")'.runner=[\"prlimit\", \"--as=4294967296\"] --test-tool=nextest --cargo-test-arg=--max-fail=1:immediate --cargo-test-arg=--no-tests=warn --workspace --in-diff target/xtask/changes.diff --jobs 3 --timeout-multiplier 15 --minimum-test-timeout 60 -- -- --include-ignored",
             "read mutants.out/log/baseline.log",
@@ -3336,7 +3339,7 @@ fn mutates_the_lines_changed_and_never_widens() {
     assert!(
         said.contains(
             "  the Rust lines changed since abc1230 feat: the base (merge base of HEAD with \
-             dsp/block-2), not widened: 2 mutants to run\n"
+             dsp/block-2), not widened to their crates: 2 mutants to run\n"
         ),
         "said: {said}"
     );
@@ -3457,7 +3460,7 @@ fn counts_one_mutant_in_the_singular() {
     assert!(
         said.contains(
             "  the Rust lines changed since abc1230 feat: the base (merge base of HEAD with \
-             dsp/block-2), not widened: 1 mutant to run\n"
+             dsp/block-2), not widened to their crates: 1 mutant to run\n"
         ),
         "said: {said}"
     );

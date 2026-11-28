@@ -928,8 +928,10 @@ fn runs_every_step_and_reports_success() {
     // of its inputs. The mutation step and the proof record each capture the index for the
     // bytes git shows, and the proof record the untracked code, test data and settings. Each
     // of the three readings of the tree's state (before the checks, after them, and the proof
-    // record's) captures the tracked files with their tags.
-    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 16, 37, 76, 4);
+    // record's) captures the tracked files with their tags. The mutation step also lists the
+    // mutants of the files changed in part with their functions' spans, to widen the changes
+    // to the functions holding them.
+    let (tools, emptied, listed, captured, written) = (crate::TOOLS.len(), 16, 37, 77, 4);
     // Three of the commands are the doc tests' with their error codes checked: the
     // fixture's, then each workspace's; one per package another uses is its build, prepared
     // for them.

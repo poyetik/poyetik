@@ -1045,9 +1045,13 @@ impl Runner for Fake {
         {
             return Ok(rust);
         }
+        // cargo-mutants' JSON listing of the files a change touches: none of their functions
+        // unless a test scripts one, so that a change is widened only where a test says so.
+        let listing = cmd.program == "cargo" && cmd.args.iter().any(|arg| arg == "--json");
         self.files
             .get(&format!("capture {line}"))
             .cloned()
+            .or_else(|| listing.then(|| "[]".to_owned()))
             .or_else(|| self.git_from_its_diff(cmd))
             .ok_or_else(|| {
                 CommandFailure::of(

@@ -2003,7 +2003,7 @@ fn cli_mutates_the_lines_changed_since_a_revision() {
     assert!(
         said.contains(
             "  the Rust lines changed since abc1230 feat: the base (merge base of HEAD with \
-             dsp/block-2), not widened: 2 mutants to run\n"
+             dsp/block-2), not widened to their crates: 2 mutants to run\n"
         ),
         "the base and the count said before the run: {said}"
     );

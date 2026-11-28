@@ -23,12 +23,13 @@ use crate::{
     rust_source::RustSource,
     steps::{
         Cmd, Dir, Failure, NativePart, all_of, changes_list_command, changes_mutants_command,
-        safe_message, tested_mutants_command,
+        functions_list_command, safe_message, tested_mutants_command,
     },
     supply_chain::PNPM_SETTINGS_FILES,
     supply_chain::PNPM_WORKSPACE,
     test_code::{in_crate, under_root},
     unsafety::test_declarations,
+    widened,
     workspace::{
         CHANGES_DIFF, CargoWorkspace, CrateRole, Extent, GPU_WORKSPACE, MAIN_BASES, MUTATION_BASES,
         RUST_CRATES, RustCrate, code_sources,
@@ -1501,10 +1502,52 @@ fn root_mutants(
             &format!("  no Rust file changed{outside}: no mutant to test"),
         );
     }
+    let diff = widened_to_functions(runner, out, diff)?;
     runner
         .write(CHANGES_DIFF, &diff)
         .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;
     mutants_with_doc_tests(runner, out, &changes_mutants_command(jobs), root)
+}
+
+/// `diff` with every function holding a line it changes marked added whole
+/// ([`widen`](crate::widened::widen)), from cargo-mutants' listing of the files it changes in
+/// part ([`functions_list_command`]); `diff` itself when it changes none in part. Says how
+/// many functions it marked, when any.
+///
+/// # Errors
+///
+/// Returns why cargo-mutants cannot list those files' mutants, why its listing is not its
+/// JSON, why a file cannot be read, or stdout cannot be written.
+fn widened_to_functions(
+    runner: &mut dyn Runner,
+    out: &mut dyn Write,
+    diff: String,
+) -> Result<String, Failure> {
+    let files = widened::partly_changed(&diff);
+    if files.is_empty() {
+        return Ok(diff);
+    }
+    let listing = runner
+        .capture(&functions_list_command(&files))
+        .map_err(|failure| {
+            Failure::from(format!(
+                "cannot list the mutants of the files changed: {failure}"
+            ))
+        })?;
+    let (widened, functions) =
+        widened::widen(&diff, &listing, &mut |path| read_file(runner, path))?;
+    if functions > 0 {
+        let noun = if functions == 1 {
+            "function"
+        } else {
+            "functions"
+        };
+        say(
+            out,
+            &format!("  {functions} {noun} holding a line changed, mutated whole"),
+        )?;
+    }
+    Ok(widened)
 }
 
 /// Runs cargo-mutants on the Rust lines changed since the merge base of `HEAD` with `since`
@@ -1586,6 +1629,7 @@ pub(crate) fn rust_mutants_of_changed_lines(
             &format!("  no Rust line of the root's workspace changed since {measured}"),
         )?;
     } else {
+        let diff = widened_to_functions(runner, out, diff)?;
         runner
             .write(CHANGES_DIFF, &diff)
             .map_err(|error| Failure::from(format!("cannot write {CHANGES_DIFF}: {error}")))?;
@@ -1597,7 +1641,7 @@ pub(crate) fn rust_mutants_of_changed_lines(
         say(
             out,
             &format!(
-                "  the Rust lines changed since {measured}, not widened: {count} {mutants} to \
+                "  the Rust lines changed since {measured}, not widened to their crates: {count} {mutants} to \
                  run"
             ),
         )?;

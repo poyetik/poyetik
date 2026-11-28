@@ -1,0 +1,10 @@
+# A workspace of its own, outside the project's: the body of `new` moved into a function of
+# its own, which xtask's tests list and filter with the real cargo-mutants, proving that a
+# diff widened to the functions it touches selects every mutant of the body moved.
+[workspace]
+
+[package]
+name = "moved-body"
+version = "0.0.0"
+edition = "2024"
+publish = false

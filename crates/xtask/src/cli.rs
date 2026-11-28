@@ -58,7 +58,8 @@ usage: cargo xtask <check [--full [--part <part>]|--gates|--native]|list [--full
                         of a crate, a TypeScript package (its directory) or one of its
                         sources (their paths from the root); --changed <revision>:
                         the Rust lines changed since the merge base of HEAD with
-                        <revision> (a commit, branch or tag) only, not widened;
+                        <revision> (a commit, branch or tag) and every function holding
+                        one, whole, not widened to their crates;
                         conformance/visual: the CPU reference's code that writes image
                         bytes, with the visual corpus's check as the only test (a step of
                         the full check, and of the default one when a change reaches its
@@ -114,8 +115,8 @@ pub enum Target {
         /// Its path, relative to the package.
         source: String,
     },
-    /// The Rust lines changed since the merge base of `HEAD` with a revision, not widened
-    /// (`--changed <revision>`).
+    /// The Rust lines changed since the merge base of `HEAD` with a revision and every
+    /// function holding one, whole, not widened to their crates (`--changed <revision>`).
     ChangedLines(Revision),
     /// The CPU reference's code that writes image bytes, with the visual corpus's check as
     /// the only test

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `cargo xtask check` (its Rust mutation testing of the changes) and `cargo xtask mutants --changed` mutated only the mutants touching a line a change adds or deletes beside, so a body moved into a function of its own, or a function whose signature alone changed, kept its lines as context and went unmutated; they now mutate every function holding such a line, whole, from cargo-mutants' listing of the files changed.
+
 ## [0.12.0] - 2026-11-27
 
 ### Added
