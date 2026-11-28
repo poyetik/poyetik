@@ -19,7 +19,8 @@ const LISTING: &str = r#"[
   {"file": "src/square.rs", "function": {"function_name": "Square::checked", "span": {"start": {"line": 5, "column": 5}, "end": {"line": 7, "column": 6}}}},
   {"file": "src/square.rs", "function": {"function_name": "Square::other", "span": {"start": {"line": 8, "column": 5}, "end": {"line": 8, "column": 18}}}},
   {"file": "src/square.rs"},
-  {"file": "src/other.rs", "function": {"function_name": "f", "span": {"start": {"line": 1, "column": 1}, "end": {"line": 3, "column": 2}}}}
+  {"file": "src/other.rs", "function": {"function_name": "f", "span": {"start": {"line": 1, "column": 1}, "end": {"line": 3, "column": 2}}}},
+  {"file": "src/new.rs", "function": {"function_name": "f", "span": {"start": {"line": 1, "column": 1}, "end": {"line": 1, "column": 10}}}}
 ]"#;
 
 #[test]
@@ -136,7 +137,8 @@ fn marks_a_moved_body_added_whole_and_nothing_else() {
             ),
             1
         )),
-        "the moved body whole; a new file and a section touching no listed function as they were"
+        "the moved body whole; a new file, its function listed, and a section touching no listed \
+         function as they were"
     );
     let mut unread = |path: &str| Err(Failure::from(format!("cannot read {path}")));
     assert_eq!(

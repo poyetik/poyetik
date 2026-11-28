@@ -4285,3 +4285,62 @@ fn stops_each_widened_mutation_at_whichever_call_fails() {
         "each broken call refused or said"
     );
 }
+
+#[test]
+fn mutates_whole_each_function_holding_a_line_changed() {
+    // A line changed inside the functions cargo-mutants lists: each of them is marked added
+    // whole, every line replaced by itself, and the count said, one function or several.
+    let path = "crates/audio-core/src/lib.rs";
+    let source = "b\nfn f() {\n}\n";
+    let section = |lines: &[&str]| {
+        let count = lines.len();
+        let mut text = format!(
+            "diff --git a/{path} b/{path}\n--- a/{path}\n+++ b/{path}\n@@ -1,{count} +1,{count} @@\n"
+        );
+        for sign in ['-', '+'] {
+            for line in lines {
+                text.push(sign);
+                text.push_str(line);
+                text.push('\n');
+            }
+        }
+        text
+    };
+    let span = |last: u8| {
+        format!(
+            "{{\"file\": \"{path}\", \"function\": {{\"span\": {{\"start\": {{\"line\": 1}}, \"end\": {{\"line\": {last}}}}}}}}}"
+        )
+    };
+    for (spans, diff, said) in [
+        (
+            vec![span(2)],
+            section(&["b", "fn f() {"]),
+            "  1 function holding a line changed, mutated whole\n",
+        ),
+        (
+            vec![span(2), span(3)],
+            section(&["b", "fn f() {", "}"]),
+            "  2 functions holding a line changed, mutated whole\n",
+        ),
+    ] {
+        let mut fake = changed_lines_fake();
+        let _changes = fake
+            .files
+            .insert(format!("capture {}", CHANGES.0), one_line_change(path));
+        let _source = fake.files.insert(path.to_owned(), source.to_owned());
+        let listing = crate::steps::functions_list_command(&[path.to_owned()]).line();
+        let _listed = fake.files.insert(
+            format!("capture {listing}"),
+            format!("[{}]", spans.join(",")),
+        );
+        let mut out = Vec::new();
+        assert_eq!(
+            run_steps(&changed_lines_steps(), &mut fake, &mut out),
+            Ok(()),
+            "{said}"
+        );
+        assert_eq!(fake.files.get(CHANGES_DIFF), Some(&diff), "{said}");
+        let shown = String::from_utf8(out).expect("UTF-8");
+        assert!(shown.contains(said), "{shown}");
+    }
+}
