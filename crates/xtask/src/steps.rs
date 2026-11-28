@@ -57,6 +57,12 @@ impl Cmd {
     /// `program` with `args`, run in `dir`, with no variable of its own.
     #[must_use]
     pub fn new(program: &'static str, args: &[&str], dir: Dir) -> Self {
+        Self::of(program, args, dir)
+    }
+
+    /// [`Cmd::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn of(program: &'static str, args: &[&str], dir: Dir) -> Self {
         Self {
             program,
             args: args.iter().map(|&arg| (*arg).to_owned()).collect(),
@@ -200,6 +206,10 @@ pub enum Action {
     /// Require every place that starts a process to be listed, and every copy of git's
     /// variables to be xtask's ([`hermetic_git_gate`](crate::hermetic::hermetic_git_gate)).
     HermeticGitGate,
+    /// Require every `fn new` of a crate's sources to be one call to a function of another
+    /// name, which mutation testing reaches
+    /// ([`delegating_new_gate`](crate::constructors::delegating_new_gate)).
+    DelegatingNewGate,
     /// Require the reasons of the registers of proof bypasses and equivalent mutants to name
     /// what exists ([`register_names_gate`](crate::reviews::register_names_gate)).
     RegisterNamesGate,
@@ -363,6 +373,7 @@ impl Action {
             | Self::RetiredPatternsGate
             | Self::RunnableHintsGate
             | Self::HermeticGitGate
+            | Self::DelegatingNewGate
             | Self::RegisterNamesGate
             | Self::VersionGate
             | Self::HistoryGate
@@ -441,6 +452,7 @@ impl Action {
             | Self::RetiredPatternsGate
             | Self::RunnableHintsGate
             | Self::HermeticGitGate
+            | Self::DelegatingNewGate
             | Self::RegisterNamesGate
             | Self::ConflictMarkerGate
             | Self::SourceKindsGate
@@ -1737,7 +1749,7 @@ fn visual_conformance_step() -> Step {
 
 /// The gates over the tracked text files: citations, counts, words, conflict markers,
 /// kinds, retired patterns, hints, the git a test starts and the reasons of the registers.
-fn text_steps() -> [Step; 9] {
+fn text_steps() -> [Step; 10] {
     [
         Step {
             name: "Every roadmap step cited exists on the board".to_owned(),
@@ -1771,6 +1783,11 @@ fn text_steps() -> [Step; 9] {
             name: "Every place that starts a process is listed; every copy of git's variables is xtask's"
                 .to_owned(),
             action: Action::HermeticGitGate,
+        },
+        Step {
+            name: "Every new of a crate is one call to a function mutation testing reaches"
+                .to_owned(),
+            action: Action::DelegatingNewGate,
         },
         Step {
             name: "Every reason of the registers of proof bypasses and equivalent mutants names what exists".to_owned(),

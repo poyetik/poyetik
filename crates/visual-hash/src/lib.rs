@@ -92,6 +92,12 @@ impl ImageHasher {
     /// Starts the hash of a sequence of images of `size` and `encoding` at `rate`.
     #[must_use]
     pub fn new(rate: ImageRate, size: ImageSize, encoding: ColorEncoding) -> Self {
+        Self::started(rate, size, encoding)
+    }
+
+    /// [`ImageHasher::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn started(rate: ImageRate, size: ImageSize, encoding: ColorEncoding) -> Self {
         let code: u32 = match encoding {
             ColorEncoding::LinearRec709Rgba32F => 1,
         };

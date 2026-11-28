@@ -71,7 +71,13 @@ enum Feed<K> {
 impl<K: Copy> Feed<K> {
     /// How `first`, then `rest`, in their summing order, feed a block: a block with a feed
     /// has a first source by construction.
-    fn new((first, rest): Sources<K>) -> Self {
+    fn new(sources: Sources<K>) -> Self {
+        Self::made(sources)
+    }
+
+    /// [`Feed::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn made((first, rest): Sources<K>) -> Self {
         match *rest.as_slice() {
             [] => Self::Single(first),
             [second] => Self::Two(first, second),

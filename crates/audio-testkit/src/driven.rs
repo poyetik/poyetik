@@ -183,6 +183,16 @@ impl Run {
     /// `R` frames at most: over a block of the steady body, they stay at the last ones.
     fn new<const R: usize>(
         spec: &'static ObjectSpec,
+        driven: (Motion, ParamValues),
+        steady: [Body; BLOCKS],
+    ) -> Self {
+        Self::made::<R>(spec, driven, steady)
+    }
+
+    /// [`Run::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn made<const R: usize>(
+        spec: &'static ObjectSpec,
         (motion, start): (Motion, ParamValues),
         steady: [Body; BLOCKS],
     ) -> Self {

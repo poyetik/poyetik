@@ -2137,6 +2137,7 @@ pub(crate) fn command_lines(steps: &[Step]) -> Vec<String> {
             Action::RetiredPatternsGate => "retired patterns gate".to_owned(),
             Action::RunnableHintsGate => "runnable hints gate".to_owned(),
             Action::HermeticGitGate => "hermetic git gate".to_owned(),
+            Action::DelegatingNewGate => "delegating new gate".to_owned(),
             Action::RegisterNamesGate => "register names gate".to_owned(),
             Action::FusedBuild => "fused build".to_owned(),
             Action::DocTests => "doc tests".to_owned(),

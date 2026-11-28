@@ -548,7 +548,7 @@
       "column": "later",
       "milestone": "M0 Foundations",
       "createdAt": "2026-11-08",
-      "updatedAt": "2026-11-27",
+      "updatedAt": "2026-11-28",
       "tasks": [
         {
           "title": "Patch reading: the format version is checked after the whole document parses, so a version-2 patch is reported as an unknown field; read format first. audio-cli and the oracle skip non-.json entries of cases/ and patches/ silently; refuse them",
@@ -1256,7 +1256,7 @@
         },
         {
           "title": "Every constructor named new proven by mutation, validating or not: cargo-mutants never mutates a function named new in an impl, so each new becomes one expression delegating to a function of another name, which it mutates, and a gate refuses a new holding more. Sites, counted as every fn new in a crate's src outside its test files: audio-core 16, audio-host 3, audio-boxes 1, audio-cli 1, visual-core 4, visual-gpu 3, visual-host 2, visual-boxes 1, visual-hash 1, xtask 1. First confirm with cargo mutants --list that the delegated function's mutants are listed",
-          "done": false
+          "done": true
         },
         {
           "title": "Module sizes follow the version: the workspace version enters the symbol names of the workspace's own crates (the crate disambiguators of Rust's symbol mangling), so a version commit alone changes the engine module's name section and the order of its functions and data, and a size blessed at one version is compared at another (measured 2026-11-26 on an Apple silicon Mac with the pinned toolchain 1.99.1: the same engine code builds 391,554 bytes at version 0.10.0, and 391,607 at versions 0.8.0, the blessed size, and 0.10.1, each build reproducible): keep the version out of the modules' bytes, held by a check that builds the same code at two versions, or else bless the sizes and the module digest (#11 step 3) at each version commit",

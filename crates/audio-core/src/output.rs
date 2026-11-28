@@ -65,6 +65,12 @@ impl Replaced {
     /// no first sample for a count of zero and one for any other count.
     #[must_use]
     pub const fn new(count: u64, first: Option<FirstReplaced>) -> Option<Self> {
+        Self::made(count, first)
+    }
+
+    /// [`Replaced::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made(count: u64, first: Option<FirstReplaced>) -> Option<Self> {
         if (count == 0) == first.is_none() {
             Some(Self { count, first })
         } else {
@@ -166,6 +172,12 @@ impl<S: Sample> Stream<S> {
     /// At the first frame, nothing replaced, for a stream without an end, limited through
     /// `limiter` when there is one.
     const fn new(limiter: Option<TruePeakLimiter<S>>) -> Self {
+        Self::made(limiter)
+    }
+
+    /// [`Stream::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made(limiter: Option<TruePeakLimiter<S>>) -> Self {
         Self {
             frame: 0,
             until: None,
@@ -409,6 +421,12 @@ impl<S: Sample, D: Delivered<S>, const N: usize> OutputStage<S, D, N> {
     /// ```
     #[must_use]
     pub fn new(channels: usize) -> Self {
+        Self::made(channels)
+    }
+
+    /// [`OutputStage::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn made(channels: usize) -> Self {
         Self::of(channels, None)
     }
 

@@ -65,6 +65,12 @@ impl<S: Sample, const N: usize> Driven<S, N, 1> for Osc {
 impl Osc {
     /// An oscillator at `frequency` hertz, starting at phase 0.
     fn new(rate: SampleRate, frequency: Binary64) -> Self {
+        Self::made(rate, frequency)
+    }
+
+    /// [`Osc::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn made(rate: SampleRate, frequency: Binary64) -> Self {
         let mut osc = Self {
             phase: Binary64::ZERO,
             increment: Binary64::ZERO,

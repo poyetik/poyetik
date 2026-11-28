@@ -23,6 +23,12 @@ impl Encoding {
     /// No room yet: no value, no byte.
     #[must_use]
     pub const fn new() -> Self {
+        Self::empty()
+    }
+
+    /// [`Encoding::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn empty() -> Self {
         Self {
             values: Vec::new(),
             bytes: Vec::new(),

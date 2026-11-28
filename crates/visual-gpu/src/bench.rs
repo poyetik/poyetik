@@ -529,6 +529,12 @@ impl Held {
     /// `driver`.
     #[must_use]
     pub const fn new(time: u64, system: String, driver: String) -> Self {
+        Self::holding(time, system, driver)
+    }
+
+    /// [`Held::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn holding(time: u64, system: String, driver: String) -> Self {
         Self {
             time,
             system,
@@ -1225,6 +1231,12 @@ impl System {
     /// The outside world of a command run from `root`, the repository root.
     #[must_use]
     pub const fn new(root: std::path::PathBuf) -> Self {
+        Self::at(root)
+    }
+
+    /// [`System::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn at(root: std::path::PathBuf) -> Self {
         Self {
             root,
             gpu: None,

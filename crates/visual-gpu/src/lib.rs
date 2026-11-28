@@ -544,6 +544,16 @@ impl GpuSquare {
     /// its error scopes do not answer at once, and [`GpuError::Lost`] when the
     /// device is lost while opening and an error was caught.
     pub fn new(backends: wgpu::Backends) -> Result<Self, GpuError> {
+        Self::opened(backends)
+    }
+
+    /// [`GpuSquare::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`GpuSquare::new`].
+    fn opened(backends: wgpu::Backends) -> Result<Self, GpuError> {
         Self::open(backends, |limits| limits, true)
     }
 

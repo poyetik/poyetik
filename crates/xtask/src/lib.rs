@@ -18,6 +18,7 @@ mod citations;
 mod cli;
 mod commits;
 mod conflicts;
+mod constructors;
 mod corpus;
 mod counts;
 mod coverage;
@@ -62,6 +63,7 @@ pub use commits::{
     commit_scopes, matrix_parts, named_parts,
 };
 pub use conflicts::{GIT_ATTRIBUTES, MARKER_SIZE, binary_suffixes, conflict_marker_gate};
+pub use constructors::delegating_new_gate;
 pub use corpus::{
     CORPUS_CRATES, CORPUS_EXEMPT, CORPUS_INPUTS, CORPUS_MISSED, CORPUS_MUTANTS_OUT, CORPUS_MUTATED,
     CORPUS_NOT_MUTATED, CORPUS_TEST, CORPUS_TEST_TIMEOUT, corpus_baseline_command, corpus_gate,

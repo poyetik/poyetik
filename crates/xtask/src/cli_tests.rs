@@ -1572,9 +1572,10 @@ fn checks_a_push_then_runs_every_check() {
     // And the refusal of a mutant left in place.
     // And the retired patterns and runnable hints gates.
     // And the visual corpus's mutation testing: its report emptied, then its run.
-    // And the source kinds, list counts, hermetic git and register names gates.
+    // And the source kinds, list counts, hermetic git, delegating constructor and register names
+    // gates.
     let checks =
-        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2 + 4;
+        117 + visual_steps() + added_package_steps() + 7 + 2 + added_builds() + 1 + 1 + 2 + 2 + 5;
     assert!(
         String::from_utf8(out).expect("UTF-8").ends_with(&format!(
             "✔ all {checks} checks passed in {}\n",
@@ -1668,9 +1669,10 @@ fn prints_the_details_of_a_failure_on_stdout_and_one_line_on_stderr() {
     // And the refusal of a mutant left in place.
     // And the retired patterns and runnable hints gates.
     // And the visual corpus's mutation testing: its report emptied, then its run.
-    // And the source kinds, list counts, hermetic git and register names gates.
+    // And the source kinds, list counts, hermetic git, delegating constructor and register names
+    // gates.
     let checks =
-        115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 1 + 2 + 2 + 4;
+        115 + visual_steps() + added_package_steps() + 8 + 2 + added_builds() + 1 + 1 + 2 + 2 + 5;
     let took = elapsed(checks);
     assert_eq!(
         String::from_utf8(err).expect("UTF-8"),

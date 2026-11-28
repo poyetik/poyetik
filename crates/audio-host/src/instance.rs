@@ -108,6 +108,12 @@ impl Instance {
     /// An instance with no engine loaded, whose loads build a raw output stage.
     #[must_use]
     pub const fn new() -> Self {
+        Self::made()
+    }
+
+    /// [`Instance::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made() -> Self {
         Self {
             input: Vec::new(),
             engine: None,

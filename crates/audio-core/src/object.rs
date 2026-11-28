@@ -116,6 +116,22 @@ impl ParamSpec {
         minimum: f64,
         maximum: f64,
     ) -> Result<Self, ParamSpecError> {
+        Self::validated(name, description, default_value, minimum, maximum)
+    }
+
+    /// [`ParamSpec::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`ParamSpec::new`].
+    const fn validated(
+        name: &'static str,
+        description: &'static str,
+        default_value: f64,
+        minimum: f64,
+        maximum: f64,
+    ) -> Result<Self, ParamSpecError> {
         match range_rule(default_value, minimum, maximum) {
             Ok(()) => Ok(Self {
                 name,
@@ -1248,6 +1264,12 @@ impl Factory {
     /// of `T` ([`ObjectSpec::new`]), with `T`'s parameters.
     #[must_use]
     pub(crate) const fn new<T: Create<K>, const K: usize>() -> Self {
+        Self::made::<T, K>()
+    }
+
+    /// [`Factory::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made<T: Create<K>, const K: usize>() -> Self {
         Self {
             constructors: Constructors::of::<T, K>(),
         }
@@ -1481,6 +1503,26 @@ impl ObjectSpec {
         capabilities: &'static [Capability],
         algorithm_version: AlgorithmVersion,
     ) -> Self {
+        Self::made::<T, K>(
+            name,
+            description,
+            inlets,
+            outlets,
+            capabilities,
+            algorithm_version,
+        )
+    }
+
+    /// [`ObjectSpec::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made<T: Create<K>, const K: usize>(
+        name: &'static str,
+        description: &'static str,
+        inlets: &'static [PortSpec],
+        outlets: &'static [PortSpec],
+        capabilities: &'static [Capability],
+        algorithm_version: AlgorithmVersion,
+    ) -> Self {
         Self {
             name,
             description,
@@ -1685,6 +1727,12 @@ impl<I, const K: usize> Typed<I, K> {
     /// instance that takes no values of its own box type: the driven laws refuse it.
     #[must_use]
     pub const fn new(spec: &'static ObjectSpec, instance: I) -> Self {
+        Self::made(spec, instance)
+    }
+
+    /// [`Typed::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made(spec: &'static ObjectSpec, instance: I) -> Self {
         Self {
             box_type: BoxType(spec),
             instance,

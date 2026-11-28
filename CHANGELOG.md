@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `cargo xtask check` refuses a `fn new` of a crate's sources (`crates/<crate>/src/`, unit test files apart) holding anything but one call to a function of another name, its parameters passed on, naming its file and line: cargo-mutants never mutates a function named `new`, so whatever one holds would go unmutated.
+
 ## [0.13.0] - 2026-11-27
 
 ### Added

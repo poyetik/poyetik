@@ -269,7 +269,7 @@ fn the_parts_run_every_step_of_the_full_check_once() {
     assert_eq!(
         steps_run,
         (18 + added_packages()) * 4
-            + (122 + visual_steps() + added_package_steps() - 4 - 7 - 2)
+            + (123 + visual_steps() + added_package_steps() - 4 - 7 - 2)
             + 8 * 2
             + 1
             + 2

@@ -24,6 +24,16 @@ impl SampleRate {
     /// Returns [`CoreError::InvalidSampleRate`] when `hz` is outside
     /// [`SampleRate::MIN`]..=[`SampleRate::MAX`].
     pub fn new(hz: u32) -> Result<Self, CoreError> {
+        Self::checked(hz)
+    }
+
+    /// [`SampleRate::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    ///
+    /// # Errors
+    ///
+    /// As [`SampleRate::new`].
+    fn checked(hz: u32) -> Result<Self, CoreError> {
         if (Self::MIN..=Self::MAX).contains(&hz) {
             Ok(Self(hz))
         } else {

@@ -287,6 +287,12 @@ impl Binary64 {
     /// decision 10).
     #[must_use]
     pub const fn new(value: f64) -> Self {
+        Self::made(value)
+    }
+
+    /// [`Binary64::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    const fn made(value: f64) -> Self {
         Self(value)
     }
 }
@@ -789,6 +795,12 @@ impl<S: Sample, const N: usize> Lanes<S, N> {
     /// Lanes of silence, on the heap, and one block of silence after them: the term a sum
     /// reads for a source it cannot find.
     pub(crate) fn new() -> Self {
+        Self::made()
+    }
+
+    /// [`Lanes::new`]'s body, a function of its own so that mutation testing reaches it:
+    /// cargo-mutants never mutates a function named `new`.
+    fn made() -> Self {
         Self(alloc::vec![S::ZERO; LANES.saturating_mul(N)])
     }
 
